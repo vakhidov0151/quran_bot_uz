@@ -78,10 +78,12 @@ async def prayer_times_handler(message: Message):
     lat, lon = location['latitude'], location['longitude']
     region = get_nearest_region(lat, lon)
     islom_url = f"https://islomapi.uz/api/present/day?region={region}"
+    aladhan_url = f"http://api.aladhan.com/v1/timings?latitude={lat}&longitude={lon}&method=1&school=1&tune=0,0,0,0,0,5,0,-18,0"
     
     async with aiohttp.ClientSession() as session:
+        # ZAXIRA 1: islomapi
         try:
-            async with session.get(islom_url, timeout=5) as response:
+            async with session.get(islom_url, timeout=3) as response:
                 if response.status == 200:
                     data = await response.json(content_type=None)
                     times = data['times']
@@ -99,8 +101,33 @@ async def prayer_times_handler(message: Message):
                                 f"☀️ Пешин: {times.get('peshin', '')}\n🌇 Аср: {times.get('asr', '')}\n"
                                 f"🌆 Шом: {times.get('shom_iftor', '')}\n🌃 Хуфтон: {times.get('hufton', '')}")
                     await message.answer(text, parse_mode="Markdown")
-        except Exception:
-            await message.answer("Xatolik yuz berdi" if script == 'latin' else "Хатолик юз берди")
+                    return
+        except: pass
+
+        # ZAXIRA 2: Aladhan API (Islomapi ishlamay qolganda)
+        try:
+            async with session.get(aladhan_url, timeout=4) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    timings = data['data']['timings']
+                    h_date = data['data']['date']['hijri']
+                    
+                    if script == 'latin':
+                        text = (f"🕌 **Namoz vaqtlari (Zaxira - {region})**\n🗓 Milodiy: {data['data']['date']['readable']}\n"
+                                f"🌙 Hijriy: {h_date['day']} {h_date['month']['en']}, {h_date['year']}-yil\n\n"
+                                f"🌅 Bomdod: {timings['Fajr']}\n🌄 Quyosh: {timings['Sunrise']}\n"
+                                f"☀️ Peshin: {timings['Dhuhr']}\n🌇 Asr: {timings['Asr']}\n"
+                                f"🌆 Shom: {timings['Maghrib']}\n🌃 Xufton: {timings['Isha']}")
+                    else:
+                        text = (f"🕌 **Намоз вақтлари (Захира - {region})**\n🗓 Милодий: {data['data']['date']['readable']}\n"
+                                f"🌙 Ҳижрий: {h_date['day']} {h_date['month']['en']}, {h_date['year']}-йил\n\n"
+                                f"🌅 Бомдод: {timings['Fajr']}\n🌄 Қуёш: {timings['Sunrise']}\n"
+                                f"☀️ Пешин: {timings['Dhuhr']}\n🌇 Аср: {timings['Asr']}\n"
+                                f"🌆 Шом: {timings['Maghrib']}\n🌃 Хуфтон: {timings['Isha']}")
+                    await message.answer(text, parse_mode="Markdown")
+                    return
+        except:
+            await message.answer("Xatolik: Tarmoq uzildi" if script == 'latin' else "Хатолик: Тармоқ узилди")
 
 @router.message(F.text.in_({"✨ Kun oyati", "✨ Кун ояти"}))
 async def daily_verse_handler(message: Message):
@@ -110,7 +137,12 @@ async def daily_verse_handler(message: Message):
         title = "✨ **Kun oyati** ✨" if script == 'latin' else "✨ **Кун ояти** ✨"
         sura_text = "surasi" if script == 'latin' else "сураси"
         oyat_text = "oyat" if script == 'latin' else "оят"
-        text = f"{title}\n\n📖 **{verse.get('surah_name_uz', '')} {sura_text}, {verse.get('verse_id', '')}-{oyat_text}**\n\n📝 {verse.get('text_arabic', '')}\n\n🇺🇿 {verse.get('text_uzbek', '')}"
+        name = verse.get('surah_name_uz', verse.get('name_uz', ''))
+        v_id = verse.get('verse_id', verse.get('id', ''))
+        ar = verse.get('text_arabic', verse.get('arabic', ''))
+        uz = verse.get('text_uzbek', verse.get('uzbek', verse.get('text', '')))
+        
+        text = f"{title}\n\n📖 **{name} {sura_text}, {v_id}-{oyat_text}**\n\n📝 {ar}\n\n🇺🇿 {uz}"
         await message.answer(text, parse_mode="Markdown")
 
 @router.message(F.text.in_({"🤲 Duolar", "🤲 Дуолар"}))
@@ -161,7 +193,7 @@ async def quran_read_handler(message: Message):
         msg_text = "📖 **Kerakli surani tanlang:**" if script == 'latin' else "📖 **Керакли сурани танланг:**"
         await message.answer(msg_text, reply_markup=get_surahs_keyboard(surahs, page=1, script=script), parse_mode="Markdown")
     except Exception as e:
-        await message.answer(f"Xatolik (Qur'on o'qish): {e}")
+        await message.answer(f"Xatolik: {e}")
 
 @router.callback_query(F.data.startswith("page:"))
 async def surah_page_callback(call: CallbackQuery):
@@ -179,10 +211,11 @@ async def surah_clicked_callback(call: CallbackQuery):
         if surah_info:
             sura_text = "surasi" if script == 'latin' else "сураси"
             tanlang = "Kerakli oyatni tanlang:" if script == 'latin' else "Керакли оятни танланг:"
-            await call.message.edit_text(f"📖 **{surah_info.get('surah_name_uz', '')} {sura_text}**\n{tanlang}", 
-                                         reply_markup=get_verses_keyboard(surah_id, surah_info.get('total_verses', 0), page=1, script=script), parse_mode="Markdown")
-    except Exception:
-        pass
+            name = surah_info.get('surah_name_uz', surah_info.get('name_uz', 'Sura'))
+            tot_verses = surah_info.get('total_verses', surah_info.get('verses_count', 0))
+            await call.message.edit_text(f"📖 **{name} {sura_text}**\n{tanlang}", 
+                                         reply_markup=get_verses_keyboard(surah_id, tot_verses, page=1, script=script), parse_mode="Markdown")
+    except: pass
     await call.answer()
 
 @router.callback_query(F.data.startswith("vpage:"))
@@ -190,7 +223,8 @@ async def verse_page_callback(call: CallbackQuery):
     script = await get_user_script(call.from_user.id)
     _, surah_id, page = call.data.split(":")
     surah_info = await get_surah_info(int(surah_id), script)
-    await call.message.edit_reply_markup(reply_markup=get_verses_keyboard(int(surah_id), surah_info.get('total_verses', 0), page=int(page), script=script))
+    tot_verses = surah_info.get('total_verses', surah_info.get('verses_count', 0))
+    await call.message.edit_reply_markup(reply_markup=get_verses_keyboard(int(surah_id), tot_verses, page=int(page), script=script))
     await call.answer()
 
 @router.callback_query(F.data == "back_to_surahs")
@@ -209,7 +243,12 @@ async def verse_clicked_callback(call: CallbackQuery):
     if verse:
         sura_text = "surasi" if script == 'latin' else "сураси"
         oyat_text = "oyat" if script == 'latin' else "оят"
-        text = f"📖 **{verse.get('surah_name_uz', '')} {sura_text}, {verse.get('verse_id', '')}-{oyat_text}**\n\n📝 {verse.get('text_arabic', '')}\n\n🇺🇿 {verse.get('text_uzbek', '')}"
+        name = verse.get('surah_name_uz', verse.get('name_uz', ''))
+        v_id = verse.get('verse_id', verse.get('id', ''))
+        ar = verse.get('text_arabic', verse.get('arabic', ''))
+        uz = verse.get('text_uzbek', verse.get('uzbek', verse.get('text', '')))
+        
+        text = f"📖 **{name} {sura_text}, {v_id}-{oyat_text}**\n\n📝 {ar}\n\n🇺🇿 {uz}"
         await call.message.answer(text, reply_markup=get_audio_keyboard(int(surah_id), int(verse_id), script=script), parse_mode="Markdown")
     await call.answer()
 
@@ -221,8 +260,14 @@ async def audio_callback(call: CallbackQuery):
     if verse:
         sura_text = "surasi" if script == 'latin' else "сураси"
         oyat_text = "oyat" if script == 'latin' else "оят"
+        name = verse.get('surah_name_uz', verse.get('name_uz', ''))
+        v_id = verse.get('verse_id', verse.get('id', ''))
         audio_url = verse.get('audio_ghamdi', '') if qari == 'ghamdi' else verse.get('audio_hussary', '')
-        await call.message.answer_audio(audio=audio_url, caption=f"🎙 {verse.get('surah_name_uz', '')} {sura_text}, {verse.get('verse_id', '')}-{oyat_text}", parse_mode="Markdown")
+        
+        if audio_url:
+            await call.message.answer_audio(audio=audio_url, caption=f"🎙 {name} {sura_text}, {v_id}-{oyat_text}", parse_mode="Markdown")
+        else:
+            await call.message.answer("Audio topilmadi" if script == 'latin' else "Аудио топилмади")
     await call.answer()
 
 @router.message(F.text.in_({"📿 Elektron tasbeh", "📿 Электрон тасбеҳ"}))
@@ -271,40 +316,38 @@ async def tasbih_callback(call: CallbackQuery):
     ])
     try:
         await call.message.edit_text(f"{title_text}\n\n👉 **{active_dhikr['text']}**\n{soni_text}: {current_count} / {active_dhikr['limit']}", reply_markup=keyboard, parse_mode="Markdown")
-    except Exception:
-        pass
+    except Exception: pass
     await call.answer()
 
-# QIDIRUVNI MANTIQIY QISMI (Eng pastda joylashishi shart)
 @router.message(F.text & ~F.text.in_({"📖 Qur'on o'qish va tinglash", "📖 Қуръон ўқиш ва тинглаш", "🕌 Namoz vaqtlari", "🕌 Намоз вақтлари", "✨ Kun oyati", "✨ Кун ояти", "🤲 Duolar", "🤲 Дуолар", "🔍 Qidiruv", "🔍 Қидирув", "📿 Elektron tasbeh", "📿 Электрон тасбеҳ"}))
 async def search_verses_handler(message: Message):
-    try:
-        keyword = message.text.strip()
-        if len(keyword) < 2: return
-            
-        script = await get_user_script(message.from_user.id)
+    keyword = message.text.strip()
+    if len(keyword) < 2: return
         
-        # 1. Oddiy qidiruv (Сабр uchun)
-        verses = await search_verses_by_text(keyword, script)
-        # 2. Agar topa olmasa, kichik harf bilan ham qidirib ko'ramiz (сабр uchun)
+    script = await get_user_script(message.from_user.id)
+    
+    # Katta yoki kichik harfda yozilganini inobatga olib izlash
+    verses = await search_verses_by_text(keyword, script)
+    if not verses:
+        verses = await search_verses_by_text(keyword.lower(), script)
         if not verses:
-            verses = await search_verses_by_text(keyword.lower(), script)
+            verses = await search_verses_by_text(keyword.capitalize(), script)
+    
+    if not verses:
+        msg = f"«{keyword}» bo'yicha hech narsa topilmadi." if script == 'latin' else f"«{keyword}» бўйича ҳеч нарса топилмади."
+        await message.answer(msg)
+        return
         
-        if not verses:
-            msg = f"«{keyword}» bo'yicha hech narsa topilmadi." if script == 'latin' else f"«{keyword}» бўйича ҳеч нарса топилмади."
-            await message.answer(msg)
-            return
-            
-        text = f"🔍 **Natijalar ({len(verses)} ta):**\n\n" if script == 'latin' else f"🔍 **Натижалар ({len(verses)} та):**\n\n"
-        oyat_text = "oyat" if script == 'latin' else "оят"
+    text = f"🔍 **Natijalar ({len(verses)} ta):**\n\n" if script == 'latin' else f"🔍 **Натижалар ({len(verses)} та):**\n\n"
+    oyat_text = "oyat" if script == 'latin' else "оят"
+    
+    for v in verses:
+        name = v.get('surah_name_uz', v.get('name_uz', 'Sura'))
+        v_id = v.get('verse_id', v.get('id', 0))
+        uz_text = v.get('text_uzbek', v.get('uzbek', v.get('text', '')))
+        text += f"📖 **{name}, {v_id}-{oyat_text}**\n{uz_text}\n\n---\n"
         
-        for v in verses:
-            text += f"📖 **{v.get('surah_name_uz', 'Sura')}, {v.get('verse_id', 0)}-{oyat_text}**\n{v.get('text_uzbek', '')}\n\n---\n"
-            
-        # Matn juda uzun bo'lib ketsa telegram uzib qo'ymaydi:
-        if len(text) > 4000:
-            text = text[:4000] + "...\n(Natijalar juda ko'p, faqat 10 tasi ko'rsatildi)"
-            
-        await message.answer(text, parse_mode="Markdown")
-    except Exception as e:
-        await message.answer(f"Xatolik (Qidiruv): {e}")
+    if len(text) > 4000:
+        text = text[:4000] + "...\n(Ko'p natija topildi / Кўп натижа топилди)"
+        
+    await message.answer(text, parse_mode="Markdown")
