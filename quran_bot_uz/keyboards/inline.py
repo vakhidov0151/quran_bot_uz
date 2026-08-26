@@ -17,13 +17,15 @@ def get_surahs_keyboard(surahs, page: int = 1, limit: int = 10, script='latin'):
     end_idx = start_idx + limit
     
     for surah in surahs[start_idx:end_idx]:
-        # Xatoni oldini olish: arabcha nomi bazada bo'lmasa xato bermaydi
-        ar_name = surah.get('surah_name_ar', '')
-        surah_text = f"{surah['surah_id']}. {surah.get('surah_name_uz', '')}"
-        if ar_name:
-            surah_text += f" ({ar_name})"
+        s_id = surah.get('surah_id', surah.get('id', ''))
+        s_name = surah.get('surah_name_uz', surah.get('name_uz', surah.get('name', 'Sura')))
+        s_ar = surah.get('surah_name_ar', surah.get('name_ar', surah.get('arabic', '')))
+        
+        surah_text = f"{s_id}. {s_name}"
+        if s_ar:
+            surah_text += f" ({s_ar})"
             
-        builder.row(InlineKeyboardButton(text=surah_text, callback_data=f"surah:{surah['surah_id']}"))
+        builder.row(InlineKeyboardButton(text=surah_text, callback_data=f"surah:{s_id}"))
     
     nav_buttons = []
     btn_prev = "⬅️ Олдинги" if script == 'cyrillic' else "⬅️ Oldingi"
@@ -45,6 +47,7 @@ def get_verses_keyboard(surah_id: int, total_verses: int, page: int = 1, limit: 
     btn_full = "▶️ Тўлиқ сурани тинглаш" if script == 'cyrillic' else "▶️ To'liq surani tinglash"
     builder.row(InlineKeyboardButton(text=btn_full, callback_data=f"full:{surah_id}"))
     
+    total_verses = int(total_verses) if total_verses else 1
     start_idx = (page - 1) * limit + 1
     end_idx = min(start_idx + limit - 1, total_verses)
     
