@@ -29,20 +29,38 @@ def latin_to_cyrillic(text: str) -> str:
     result = [mapping.get(char, char) for char in text]
     return "".join(result)
 
-async def set_user_script(user_id: int, script: str):
+# Baza ustunlarini tekshiruvchi va xatoni chetlab o'tuvchi xavfsiz funksiya
+async def ensure_user(user_id: int):
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""
-            INSERT INTO users (user_id, script) VALUES (?, ?)
-            ON CONFLICT(user_id) DO UPDATE SET script = ?
-        """, (user_id, script, script))
+        try:
+            await db.execute("ALTER TABLE users ADD COLUMN script TEXT DEFAULT 'latin'")
+            await db.commit()
+        except:
+            pass # Ustun allaqachon mavjud bo'lsa hech narsa qilmaydi
+            
+        async with db.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,)) as cursor:
+            row = await cursor.fetchone()
+        
+        if not row:
+            await db.execute("INSERT INTO users (user_id, script) VALUES (?, 'latin')", (user_id,))
+            await db.commit()
+
+async def set_user_script(user_id: int, script: str):
+    await ensure_user(user_id)
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("UPDATE users SET script = ? WHERE user_id = ?", (script, user_id))
         await db.commit()
 
 async def get_user_script(user_id: int) -> str:
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT script FROM users WHERE user_id = ?", (user_id,)) as cursor:
-            row = await cursor.fetchone()
-            if row and row[0]: return row[0]
-            return 'latin'
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            async with db.execute("SELECT script FROM users WHERE user_id = ?", (user_id,)) as cursor:
+                row = await cursor.fetchone()
+                if row and row[0]: 
+                    return row[0]
+    except Exception:
+        pass
+    return 'latin'
 
 async def get_all_surahs(script='latin'):
     async with aiosqlite.connect(DB_PATH) as db:
@@ -81,11 +99,9 @@ async def get_verse(surah_id: int, verse_id: int, script='latin'):
             return None
 
 async def save_user_location(user_id: int, lat: float, lon: float):
+    await ensure_user(user_id)
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""
-            INSERT INTO users (user_id, latitude, longitude) VALUES (?, ?, ?)
-            ON CONFLICT(user_id) DO UPDATE SET latitude = ?, longitude = ?
-        """, (user_id, lat, lon, lat, lon))
+        await db.execute("UPDATE users SET latitude = ?, longitude = ? WHERE user_id = ?", (lat, lon, user_id))
         await db.commit()
 
 async def get_user_location(user_id: int):
@@ -135,9 +151,7 @@ async def get_dua_by_id(dua_id: int, script='latin'):
 async def search_verses_by_text(keyword: str, script='latin'):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        # Qidiruv so'zini bazaga moslash uchun kirillga o'giramiz
         search_word = latin_to_cyrillic(keyword) if script == 'latin' else keyword
-        
         async with db.execute("SELECT * FROM verses WHERE text_uzbek LIKE ? LIMIT 10", (f"%{search_word}%",)) as cursor:
             rows = await cursor.fetchall()
             verses = []
@@ -149,7 +163,6 @@ async def search_verses_by_text(keyword: str, script='latin'):
                 verses.append(v)
             return verses
 
-# Tasodifiy kun oyati
 async def get_random_verse(script='latin'):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
