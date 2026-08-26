@@ -1,7 +1,8 @@
 import math
 import aiohttp
+import os
 from aiogram import Router, F
-from aiogram.filters import CommandStart
+from aiogram.filters import CommandStart, Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from keyboards.reply import get_main_keyboard
@@ -11,8 +12,40 @@ from database.db_manager import (
     get_surah_info, get_verse, get_all_duas, get_dua_by_id, search_verses_by_text,
     set_user_script, get_user_script, get_random_verse
 )
+from config import DB_PATH
 
 router = Router()
+
+# ==========================================
+# 🛠 1. BAZANI TEKSHIRUVCHI SUPER BUYRUQ (ENG TEPADA!)
+# ==========================================
+@router.message(Command("testdb"))
+async def test_db_handler(message: Message):
+    import aiosqlite
+    try:
+        if not os.path.exists(DB_PATH):
+            await message.answer(f"❌ Fayl topilmadi: {DB_PATH}")
+            return
+            
+        async with aiosqlite.connect(DB_PATH) as db:
+            async with db.execute("SELECT name FROM sqlite_master WHERE type='table';") as cursor:
+                tables = await cursor.fetchall()
+                if not tables:
+                    await message.answer("❌ Baza ulandi, lekin ichi bom-bo'sh (hech qanday jadval yo'q)!")
+                    return
+                
+                table_names = [t[0] for t in tables if t[0] != 'sqlite_sequence']
+                info = f"✅ BAZA TOPILDI!\n\nJadvallar ro'yxati ({len(table_names)} ta):\n\n"
+                
+                for t_name in table_names:
+                    async with db.execute(f"PRAGMA table_info({t_name})") as col_cursor:
+                        cols = await col_cursor.fetchall()
+                        col_names = [c[1] for c in cols]
+                        info += f"📁 **{t_name}**:\n- {', '.join(col_names)}\n\n"
+                
+                await message.answer(info[:4000])
+    except Exception as e:
+        await message.answer(f"❌ Baza o'qishda xatolik: {e}")
 
 def get_nearest_region(lat, lon):
     regions = {
@@ -81,7 +114,6 @@ async def prayer_times_handler(message: Message):
     aladhan_url = f"http://api.aladhan.com/v1/timings?latitude={lat}&longitude={lon}&method=1&school=1&tune=0,0,0,0,0,5,0,-18,0"
     
     async with aiohttp.ClientSession() as session:
-        # ZAXIRA 1: islomapi
         try:
             async with session.get(islom_url, timeout=3) as response:
                 if response.status == 200:
@@ -104,7 +136,6 @@ async def prayer_times_handler(message: Message):
                     return
         except: pass
 
-        # ZAXIRA 2: Aladhan API (Islomapi ishlamay qolganda)
         try:
             async with session.get(aladhan_url, timeout=4) as response:
                 if response.status == 200:
@@ -131,19 +162,24 @@ async def prayer_times_handler(message: Message):
 
 @router.message(F.text.in_({"✨ Kun oyati", "✨ Кун ояти"}))
 async def daily_verse_handler(message: Message):
-    script = await get_user_script(message.from_user.id)
-    verse = await get_random_verse(script)
-    if verse:
-        title = "✨ **Kun oyati** ✨" if script == 'latin' else "✨ **Кун ояти** ✨"
-        sura_text = "surasi" if script == 'latin' else "сураси"
-        oyat_text = "oyat" if script == 'latin' else "оят"
-        name = verse.get('surah_name_uz', verse.get('name_uz', ''))
-        v_id = verse.get('verse_id', verse.get('id', ''))
-        ar = verse.get('text_arabic', verse.get('arabic', ''))
-        uz = verse.get('text_uzbek', verse.get('uzbek', verse.get('text', '')))
-        
-        text = f"{title}\n\n📖 **{name} {sura_text}, {v_id}-{oyat_text}**\n\n📝 {ar}\n\n🇺🇿 {uz}"
-        await message.answer(text, parse_mode="Markdown")
+    try:
+        script = await get_user_script(message.from_user.id)
+        verse = await get_random_verse(script)
+        if verse:
+            title = "✨ **Kun oyati** ✨" if script == 'latin' else "✨ **Кун ояти** ✨"
+            sura_text = "surasi" if script == 'latin' else "сураси"
+            oyat_text = "oyat" if script == 'latin' else "оят"
+            name = verse.get('surah_name_uz', verse.get('name_uz', ''))
+            v_id = verse.get('verse_id', verse.get('id', ''))
+            ar = verse.get('text_arabic', verse.get('arabic', ''))
+            uz = verse.get('text_uzbek', verse.get('uzbek', verse.get('text', '')))
+            
+            text = f"{title}\n\n📖 **{name} {sura_text}, {v_id}-{oyat_text}**\n\n📝 {ar}\n\n🇺🇿 {uz}"
+            await message.answer(text, parse_mode="Markdown")
+        else:
+            await message.answer("Bazada oyatlar topilmadi.")
+    except Exception as e:
+         await message.answer(f"Xato (Kun oyati): {e}")
 
 @router.message(F.text.in_({"🤲 Duolar", "🤲 Дуолар"}))
 async def duas_menu_handler(message: Message):
@@ -190,10 +226,13 @@ async def quran_read_handler(message: Message):
     try:
         script = await get_user_script(message.from_user.id)
         surahs = await get_all_surahs(script)
+        if not surahs:
+            await message.answer("Bazada suralar topilmadi.")
+            return
         msg_text = "📖 **Kerakli surani tanlang:**" if script == 'latin' else "📖 **Керакли сурани танланг:**"
         await message.answer(msg_text, reply_markup=get_surahs_keyboard(surahs, page=1, script=script), parse_mode="Markdown")
     except Exception as e:
-        await message.answer(f"Xatolik: {e}")
+        await message.answer(f"Xatolik (Qur'on menyusi): {e}")
 
 @router.callback_query(F.data.startswith("page:"))
 async def surah_page_callback(call: CallbackQuery):
@@ -215,7 +254,8 @@ async def surah_clicked_callback(call: CallbackQuery):
             tot_verses = surah_info.get('total_verses', surah_info.get('verses_count', 0))
             await call.message.edit_text(f"📖 **{name} {sura_text}**\n{tanlang}", 
                                          reply_markup=get_verses_keyboard(surah_id, tot_verses, page=1, script=script), parse_mode="Markdown")
-    except: pass
+    except Exception as e:
+        await call.message.answer(f"Xato: {e}")
     await call.answer()
 
 @router.callback_query(F.data.startswith("vpage:"))
@@ -237,19 +277,22 @@ async def back_to_surahs_callback(call: CallbackQuery):
 
 @router.callback_query(F.data.startswith("verse:"))
 async def verse_clicked_callback(call: CallbackQuery):
-    script = await get_user_script(call.from_user.id)
-    _, surah_id, verse_id = call.data.split(":")
-    verse = await get_verse(int(surah_id), int(verse_id), script)
-    if verse:
-        sura_text = "surasi" if script == 'latin' else "сураси"
-        oyat_text = "oyat" if script == 'latin' else "оят"
-        name = verse.get('surah_name_uz', verse.get('name_uz', ''))
-        v_id = verse.get('verse_id', verse.get('id', ''))
-        ar = verse.get('text_arabic', verse.get('arabic', ''))
-        uz = verse.get('text_uzbek', verse.get('uzbek', verse.get('text', '')))
-        
-        text = f"📖 **{name} {sura_text}, {v_id}-{oyat_text}**\n\n📝 {ar}\n\n🇺🇿 {uz}"
-        await call.message.answer(text, reply_markup=get_audio_keyboard(int(surah_id), int(verse_id), script=script), parse_mode="Markdown")
+    try:
+        script = await get_user_script(call.from_user.id)
+        _, surah_id, verse_id = call.data.split(":")
+        verse = await get_verse(int(surah_id), int(verse_id), script)
+        if verse:
+            sura_text = "surasi" if script == 'latin' else "сураси"
+            oyat_text = "oyat" if script == 'latin' else "оят"
+            name = verse.get('surah_name_uz', verse.get('name_uz', ''))
+            v_id = verse.get('verse_id', verse.get('id', ''))
+            ar = verse.get('text_arabic', verse.get('arabic', ''))
+            uz = verse.get('text_uzbek', verse.get('uzbek', verse.get('text', '')))
+            
+            text = f"📖 **{name} {sura_text}, {v_id}-{oyat_text}**\n\n📝 {ar}\n\n🇺🇿 {uz}"
+            await call.message.answer(text, reply_markup=get_audio_keyboard(int(surah_id), int(verse_id), script=script), parse_mode="Markdown")
+    except Exception as e:
+        await call.message.answer(f"Xato: {e}")
     await call.answer()
 
 @router.callback_query(F.data.startswith("audio:"))
@@ -321,49 +364,35 @@ async def tasbih_callback(call: CallbackQuery):
 
 @router.message(F.text & ~F.text.in_({"📖 Qur'on o'qish va tinglash", "📖 Қуръон ўқиш ва тинглаш", "🕌 Namoz vaqtlari", "🕌 Намоз вақтлари", "✨ Kun oyati", "✨ Кун ояти", "🤲 Duolar", "🤲 Дуолар", "🔍 Qidiruv", "🔍 Қидирув", "📿 Elektron tasbeh", "📿 Электрон тасбеҳ"}))
 async def search_verses_handler(message: Message):
-    keyword = message.text.strip()
-    if len(keyword) < 2: return
-        
-    script = await get_user_script(message.from_user.id)
-    
-    # Katta yoki kichik harfda yozilganini inobatga olib izlash
-    verses = await search_verses_by_text(keyword, script)
-    if not verses:
-        verses = await search_verses_by_text(keyword.lower(), script)
-        if not verses:
-            verses = await search_verses_by_text(keyword.capitalize(), script)
-    
-    if not verses:
-        msg = f"«{keyword}» bo'yicha hech narsa topilmadi." if script == 'latin' else f"«{keyword}» бўйича ҳеч нарса топилмади."
-        await message.answer(msg)
-        return
-        
-    text = f"🔍 **Natijalar ({len(verses)} ta):**\n\n" if script == 'latin' else f"🔍 **Натижалар ({len(verses)} та):**\n\n"
-    oyat_text = "oyat" if script == 'latin' else "оят"
-    
-    for v in verses:
-        name = v.get('surah_name_uz', v.get('name_uz', 'Sura'))
-        v_id = v.get('verse_id', v.get('id', 0))
-        uz_text = v.get('text_uzbek', v.get('uzbek', v.get('text', '')))
-        text += f"📖 **{name}, {v_id}-{oyat_text}**\n{uz_text}\n\n---\n"
-        
-    if len(text) > 4000:
-        text = text[:4000] + "...\n(Ko'p natija topildi / Кўп натижа топилди)"
-        
-    await message.answer(text, parse_mode="Markdown")
-# BAZANI TEKSHIRISH UCHUN MAXSUS BUYRUQ
-@router.message(F.text == "/testdb")
-async def test_db_handler(message: Message):
-    import aiosqlite
-    from config import DB_PATH
     try:
-        async with aiosqlite.connect(DB_PATH) as db:
-            async with db.execute("SELECT name FROM sqlite_master WHERE type='table';") as cursor:
-                tables = await cursor.fetchall()
-                if tables:
-                    table_names = [t[0] for t in tables]
-                    await message.answer(f"Bazada quyidagi jadvallar bor:\n{', '.join(table_names)}")
-                else:
-                    await message.answer("Baza bom-bo'sh! Jadvallar yo'q.")
+        keyword = message.text.strip()
+        if len(keyword) < 2: return
+            
+        script = await get_user_script(message.from_user.id)
+        
+        verses = await search_verses_by_text(keyword, script)
+        if not verses:
+            verses = await search_verses_by_text(keyword.lower(), script)
+            if not verses:
+                verses = await search_verses_by_text(keyword.capitalize(), script)
+        
+        if not verses:
+            msg = f"«{keyword}» bo'yicha hech narsa topilmadi." if script == 'latin' else f"«{keyword}» бўйича ҳеч нарса топилмади."
+            await message.answer(msg)
+            return
+            
+        text = f"🔍 **Natijalar ({len(verses)} ta):**\n\n" if script == 'latin' else f"🔍 **Натижалар ({len(verses)} та):**\n\n"
+        oyat_text = "oyat" if script == 'latin' else "оят"
+        
+        for v in verses:
+            name = v.get('surah_name_uz', v.get('name_uz', 'Sura'))
+            v_id = v.get('verse_id', v.get('id', 0))
+            uz_text = v.get('text_uzbek', v.get('uzbek', v.get('text', '')))
+            text += f"📖 **{name}, {v_id}-{oyat_text}**\n{uz_text}\n\n---\n"
+            
+        if len(text) > 4000:
+            text = text[:4000] + "...\n(Ko'p natija topildi / Кўп натижа топилди)"
+            
+        await message.answer(text, parse_mode="Markdown")
     except Exception as e:
-        await message.answer(f"Baza xatoligi: {e}")
+        await message.answer(f"Xatolik (Qidiruv): {e}")
