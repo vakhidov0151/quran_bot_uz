@@ -1,8 +1,14 @@
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
-main_menu = ReplyKeyboardMarkup(
-    keyboard=[
-        [KeyboardButton(text="📖 Suralar ro'yxati")]
-    ],
-    resize_keyboard=True
-)
+def get_main_keyboard():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="📖 Qur'on o'qish va tinglash")],
+            [KeyboardButton(text="🕌 Namoz vaqtlari"), KeyboardButton(text="✨ Kun oyati")],
+            [
+                KeyboardButton(text="📍 Joylashuvni jo'natish", request_location=True)
+            ]
+        ],
+        resize_keyboard=True,
+        input_field_placeholder="Kerakli bo'limni tanlang 👇"
+    )
