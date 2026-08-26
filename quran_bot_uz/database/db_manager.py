@@ -65,48 +65,38 @@ def translate_dict(d: dict, script: str):
     return d
 
 # ==========================================
-# 🛠 Sura jadvalini o'zi topib oluvchi aqlli radar
+# 🛠 YECHIM: Suralar ro'yxatini VERSES jadvalidan guruhlab olamiz!
 # ==========================================
-async def get_sura_table_name(db):
-    async with db.execute("SELECT name FROM sqlite_master WHERE type='table'") as cursor:
-        tables = await cursor.fetchall()
-        for t in tables:
-            if 'sura' in t[0].lower():
-                return t[0]
-    return 'surahs' # Yoki standart
-
 async def get_all_surahs(script='latin'):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        table_name = await get_sura_table_name(db)
-        
-        async with db.execute(f"SELECT * FROM {table_name}") as cursor:
+        # DISTINCT orqali takrorlanmas sura nomlarini Oyatlar jadvalidan sug'urib olamiz
+        query = "SELECT DISTINCT surah_id, surah_name_uz, surah_name_ar FROM verses ORDER BY surah_id"
+        async with db.execute(query) as cursor:
             rows = await cursor.fetchall()
             return [translate_dict(dict(row), script) for row in rows]
 
 async def get_surah_info(surah_id: int, script='latin'):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        table_name = await get_sura_table_name(db)
-        
-        try:
-            cursor = await db.execute(f"SELECT * FROM {table_name} WHERE surah_id = ?", (surah_id,))
-        except:
-            cursor = await db.execute(f"SELECT * FROM {table_name} WHERE id = ?", (surah_id,))
-            
-        row = await cursor.fetchone()
-        return translate_dict(dict(row), script) if row else None
+        # Sura haqidagi ma'lumotni va jami oyatlar sonini (total_verses) o'zi sanab beradi
+        query = """
+            SELECT surah_id, surah_name_uz, surah_name_ar, COUNT(verse_id) as total_verses 
+            FROM verses 
+            WHERE surah_id = ? 
+            GROUP BY surah_id
+        """
+        async with db.execute(query, (surah_id,)) as cursor:
+            row = await cursor.fetchone()
+            return translate_dict(dict(row), script) if row else None
 
-# Verses qismi qolgan barcha joyda ishlayapti, demak jadval nomi aniq `verses`
+# Oyatni olish qismi
 async def get_verse(surah_id: int, verse_id: int, script='latin'):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        try:
-            cursor = await db.execute("SELECT * FROM verses WHERE surah_id = ? AND verse_id = ?", (surah_id, verse_id))
-        except:
-            cursor = await db.execute("SELECT * FROM verses WHERE sura = ? AND ayah = ?", (surah_id, verse_id))
-        row = await cursor.fetchone()
-        return translate_dict(dict(row), script) if row else None
+        async with db.execute("SELECT * FROM verses WHERE surah_id = ? AND verse_id = ?", (surah_id, verse_id)) as cursor:
+            row = await cursor.fetchone()
+            return translate_dict(dict(row), script) if row else None
 
 async def save_user_location(user_id: int, lat: float, lon: float):
     await ensure_user(user_id)
@@ -144,12 +134,9 @@ async def search_verses_by_text(keyword: str, script='latin'):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         search_word = latin_to_cyrillic(keyword) if script == 'latin' else keyword
-        try:
-            cursor = await db.execute("SELECT * FROM verses WHERE text_uzbek LIKE ? LIMIT 10", (f"%{search_word}%",))
-        except:
-            cursor = await db.execute("SELECT * FROM verses WHERE text LIKE ? LIMIT 10", (f"%{search_word}%",))
-        rows = await cursor.fetchall()
-        return [translate_dict(dict(row), script) for row in rows]
+        async with db.execute("SELECT * FROM verses WHERE text_uzbek LIKE ? LIMIT 10", (f"%{search_word}%",)) as cursor:
+            rows = await cursor.fetchall()
+            return [translate_dict(dict(row), script) for row in rows]
 
 async def get_random_verse(script='latin'):
     async with aiosqlite.connect(DB_PATH) as db:
