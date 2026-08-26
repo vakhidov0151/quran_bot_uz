@@ -16,9 +16,6 @@ from config import DB_PATH
 
 router = Router()
 
-# ==========================================
-# 🛠 1. BAZA ICHINI KO'RSATUVCHI RENTGEN KODI (ENG TEPADA!)
-# ==========================================
 @router.message(Command("testdb"))
 async def test_db_handler(message: Message):
     import aiosqlite
@@ -39,24 +36,6 @@ async def test_db_handler(message: Message):
                 await message.answer(text[:4000])
     except Exception as e:
         await message.answer(f"❌ Xato: {e}")
-
-# ==========================================
-# 2. ASOSIY FUNKSIYALAR
-# ==========================================
-def get_nearest_region(lat, lon):
-    regions = {
-        "Toshkent": (41.3110, 69.2405), "Andijon": (40.7820, 72.3442), "Buxoro": (39.7747, 64.4286),
-        "Farg'ona": (40.3863, 71.7161), "Jizzax": (40.1158, 67.8422), "Urganch": (41.5500, 60.6333),
-        "Namangan": (41.0010, 71.6675), "Navoiy": (40.0844, 65.3791), "Qarshi": (38.8611, 65.7952),
-        "Samarqand": (39.6270, 66.9749), "Guliston": (40.4897, 68.7842), "Termiz": (37.2241, 67.2783),
-        "Nukus": (42.4619, 59.6166)
-    }
-    nearest_region, min_dist = "Toshkent", float('inf')
-    for region, (r_lat, r_lon) in regions.items():
-        dist = math.sqrt((lat - r_lat)**2 + (lon - r_lon)**2)
-        if dist < min_dist:
-            min_dist, nearest_region = dist, region
-    return nearest_region
 
 @router.message(CommandStart())
 async def cmd_start(message: Message):
@@ -92,69 +71,56 @@ async def set_script_callback(call: CallbackQuery):
 async def handle_location(message: Message):
     script = await get_user_script(message.from_user.id)
     await save_user_location(message.from_user.id, message.location.latitude, message.location.longitude)
-    msg_text = "✅ Joylashuvingiz muvaffaqiyatli saqlandi!" if script == 'latin' else "✅ Жойлашувингиз муваффақиятли сақланди!"
+    msg_text = "✅ Joylashuvingiz muvaffaqiyatli saqlandi!\n\nEndi «🕌 Namoz vaqtlari» tugmasini bosing." if script == 'latin' else "✅ Жойлашувингиз муваффақиятли сақланди!\n\nЭнди «🕌 Намоз вақтлари» тугмасини босинг."
     await message.answer(msg_text, reply_markup=get_main_keyboard(script))
 
+# ==========================================
+# 🕌 TO'G'RILANGAN NAMOZ VAQTLARI
+# ==========================================
 @router.message(F.text.in_({"🕌 Namoz vaqtlari", "🕌 Намоз вақтлари"}))
 async def prayer_times_handler(message: Message):
     script = await get_user_script(message.from_user.id)
     location = await get_user_location(message.from_user.id)
+    
     if not location or not location['latitude']:
-        msg_text = "Siz hali joylashuvingizni yubormagansiz." if script == 'latin' else "Сиз ҳали жойлашувингизни юбормагансиз."
+        msg_text = "Siz hali joylashuvingizni yubormagansiz.\n\nIltimos, pastdagi «📍 Joylashuvni jo'natish» tugmasini bosing." if script == 'latin' else "Сиз ҳали жойлашувингизни юбормагансиз.\n\nИлтимос, пастдаги «📍 Жойлашувни жўнатиш» тугмасини босинг."
         await message.answer(msg_text)
         return
 
-    lat, lon = location['latitude'], location['longitude']
-    region = get_nearest_region(lat, lon)
-    islom_url = f"https://islomapi.uz/api/present/day?region={region}"
-    aladhan_url = f"http://api.aladhan.com/v1/timings?latitude={lat}&longitude={lon}&method=1&school=1&tune=0,0,0,0,0,5,0,-18,0"
-    
-    async with aiohttp.ClientSession() as session:
-        try:
-            async with session.get(islom_url, timeout=3) as response:
-                if response.status == 200:
-                    data = await response.json(content_type=None)
-                    times = data['times']
-                    hijri = data.get('hijri', {})
-                    if script == 'latin':
-                        text = (f"🕌 **Namoz vaqtlari ({region})**\n🗓 Milodiy: {data.get('date', '')}\n"
-                                f"🌙 Hijriy: {hijri.get('day', '')} {hijri.get('month', '')}, {hijri.get('year', '')}-yil\n\n"
-                                f"🌅 Bomdod: {times.get('tong_saharlik', '')}\n🌄 Quyosh: {times.get('quyosh', '')}\n"
-                                f"☀️ Peshin: {times.get('peshin', '')}\n🌇 Asr: {times.get('asr', '')}\n"
-                                f"🌆 Shom: {times.get('shom_iftor', '')}\n🌃 Xufton: {times.get('hufton', '')}")
-                    else:
-                        text = (f"🕌 **Намоз вақтлари ({region})**\n🗓 Милодий: {data.get('date', '')}\n"
-                                f"🌙 Ҳижрий: {hijri.get('day', '')} {hijri.get('month', '')}, {hijri.get('year', '')}-йил\n\n"
-                                f"🌅 Бомдод: {times.get('tong_saharlik', '')}\n🌄 Қуёш: {times.get('quyosh', '')}\n"
-                                f"☀️ Пешин: {times.get('peshin', '')}\n🌇 Аср: {times.get('asr', '')}\n"
-                                f"🌆 Шом: {times.get('shom_iftor', '')}\n🌃 Хуфтон: {times.get('hufton', '')}")
-                    await message.answer(text, parse_mode="Markdown")
-                    return
-        except: pass
-
-        try:
-            async with session.get(aladhan_url, timeout=4) as response:
+    try:
+        # Bazadan kelgan kordinatalarni aniq raqamga o'giramiz (xato bermasligi uchun)
+        lat = float(location['latitude'])
+        lon = float(location['longitude'])
+        
+        # Butun dunyo bo'yicha aniq ishlaydigan API
+        aladhan_url = f"http://api.aladhan.com/v1/timings?latitude={lat}&longitude={lon}&method=1&school=1"
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(aladhan_url, timeout=8) as response:
                 if response.status == 200:
                     data = await response.json()
                     timings = data['data']['timings']
                     h_date = data['data']['date']['hijri']
                     
                     if script == 'latin':
-                        text = (f"🕌 **Namoz vaqtlari (Zaxira - {region})**\n🗓 Milodiy: {data['data']['date']['readable']}\n"
+                        text = (f"🕌 **Namoz vaqtlari** (Joylashuvingiz bo'yicha)\n\n"
+                                f"🗓 Milodiy: {data['data']['date']['readable']}\n"
                                 f"🌙 Hijriy: {h_date['day']} {h_date['month']['en']}, {h_date['year']}-yil\n\n"
                                 f"🌅 Bomdod: {timings['Fajr']}\n🌄 Quyosh: {timings['Sunrise']}\n"
                                 f"☀️ Peshin: {timings['Dhuhr']}\n🌇 Asr: {timings['Asr']}\n"
                                 f"🌆 Shom: {timings['Maghrib']}\n🌃 Xufton: {timings['Isha']}")
                     else:
-                        text = (f"🕌 **Намоз вақтлари (Захира - {region})**\n🗓 Милодий: {data['data']['date']['readable']}\n"
+                        text = (f"🕌 **Намоз вақтлари** (Жойлашувингиз бўйича)\n\n"
+                                f"🗓 Милодий: {data['data']['date']['readable']}\n"
                                 f"🌙 Ҳижрий: {h_date['day']} {h_date['month']['en']}, {h_date['year']}-йил\n\n"
                                 f"🌅 Бомдод: {timings['Fajr']}\n🌄 Қуёш: {timings['Sunrise']}\n"
                                 f"☀️ Пешин: {timings['Dhuhr']}\n🌇 Аср: {timings['Asr']}\n"
                                 f"🌆 Шом: {timings['Maghrib']}\n🌃 Хуфтон: {timings['Isha']}")
                     await message.answer(text, parse_mode="Markdown")
-                    return
-        except:
-            await message.answer("Xatolik: Tarmoq uzildi" if script == 'latin' else "Хатолик: Тармоқ узилди")
+                else:
+                    await message.answer("API serverida xatolik yuz berdi." if script == 'latin' else "API серверида хатолик юз берди.")
+    except Exception as e:
+        await message.answer(f"Xatolik: {e}")
 
 @router.message(F.text.in_({"✨ Kun oyati", "✨ Кун ояти"}))
 async def daily_verse_handler(message: Message):
@@ -269,6 +235,31 @@ async def back_to_surahs_callback(call: CallbackQuery):
     surahs = await get_all_surahs(script)
     msg_text = "📖 **Kerakli surani tanlang:**" if script == 'latin' else "📖 **Керакли сурани танланг:**"
     await call.message.edit_text(msg_text, reply_markup=get_surahs_keyboard(surahs, page=1, script=script), parse_mode="Markdown")
+    await call.answer()
+
+# ==========================================
+# 🎧 YANGI: TO'LIQ SURANI TINGLASH
+# ==========================================
+@router.callback_query(F.data.startswith("full:"))
+async def full_surah_callback(call: CallbackQuery):
+    try:
+        script = await get_user_script(call.from_user.id)
+        surah_id = int(call.data.split(":")[1])
+        surah_info = await get_surah_info(surah_id, script)
+        
+        if surah_info:
+            # 1 dan 114 gacha raqamlarni audio havola uchun 001, 015 qilib 3 xonali qilamiz
+            padded_id = str(surah_id).zfill(3)
+            audio_url = f"https://server8.mp3quran.net/afs/{padded_id}.mp3"
+            name = surah_info.get('surah_name_uz', surah_info.get('name_uz', f"{surah_id}-sura"))
+            
+            msg = f"🎧 **{name}** (To'liq)\n🎙 Mishary Rashid Alafasy" if script == 'latin' else f"🎧 **{name}** (Тўлиқ)\n🎙 Мишари Рашид Алафасий"
+            
+            await call.message.answer_audio(audio=audio_url, caption=msg, parse_mode="Markdown")
+        else:
+            await call.message.answer("Sura topilmadi." if script == 'latin' else "Сура топилмади.")
+    except Exception as e:
+        await call.message.answer(f"Xato (Audio): {e}")
     await call.answer()
 
 @router.callback_query(F.data.startswith("verse:"))
