@@ -47,3 +47,30 @@ async def get_user_location(user_id: int):
             (user_id,)
         ) as cursor:
             return await cursor.fetchone()
+import aiosqlite
+from config import DB_PATH
+
+# 1. Barcha duolarni bazadan olish
+async def get_all_duas():
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM duas") as cursor:
+            return await cursor.fetchall()
+
+# 2. Ma'lum bir duoni ID bo'yicha olish
+async def get_dua_by_id(dua_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM duas WHERE id = ?", (dua_id,)) as cursor:
+            return await cursor.fetchone()
+
+# 3. Oyatlar orasidan matn bo'yicha qidirish (O'zbekcha tarjimasidan)
+async def search_verses_by_text(keyword: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        # LIKE operatori yordamida so'z qatnashgan oyatlarni qidiramiz
+        async with db.execute(
+            "SELECT * FROM verses WHERE text_uzbek LIKE ? LIMIT 10", 
+            (f"%{keyword}%",)
+        ) as cursor:
+            return await cursor.fetchall()
