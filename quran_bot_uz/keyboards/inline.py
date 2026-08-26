@@ -31,14 +31,11 @@ def get_surahs_keyboard(surahs, page: int = 1, limit: int = 10):
         
     return builder.as_markup()
 
-# YANGI: Oyatlar raqamini va To'liq sura tugmasini chiqaruvchi klaviatura
 def get_verses_keyboard(surah_id: int, total_verses: int, page: int = 1, limit: int = 30):
     builder = InlineKeyboardBuilder()
     
-    # 1. To'liq surani tinglash tugmasi
     builder.row(InlineKeyboardButton(text="▶️ To'liq surani tinglash", callback_data=f"full:{surah_id}"))
     
-    # 2. Oyatlar raqamlari (5 tadan qator qilib)
     start_idx = (page - 1) * limit + 1
     end_idx = min(start_idx + limit - 1, total_verses)
     
@@ -51,17 +48,12 @@ def get_verses_keyboard(surah_id: int, total_verses: int, page: int = 1, limit: 
     if row:
         builder.row(*row)
         
-    # 3. Oyatlar ko'p bo'lsa sahifalash (Baqara surasi kabi)
     nav_buttons = []
     if page > 1:
         nav_buttons.append(InlineKeyboardButton(text="⬅️ Oldingi", callback_data=f"vpage:{surah_id}:{page-1}"))
     if end_idx < total_verses:
         nav_buttons.append(InlineKeyboardButton(text="Keyingi ➡️", callback_data=f"vpage:{surah_id}:{page+1}"))
     
-    if nav_buttons:
-        builder.row(*nav_buttons)
-        
-    # 4. Suralarga qaytish
     builder.row(InlineKeyboardButton(text="🔙 Suralarga qaytish", callback_data="back_to_surahs"))
     
     return builder.as_markup()
