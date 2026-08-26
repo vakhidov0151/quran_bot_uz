@@ -17,10 +17,13 @@ def get_surahs_keyboard(surahs, page: int = 1, limit: int = 10, script='latin'):
     end_idx = start_idx + limit
     
     for surah in surahs[start_idx:end_idx]:
-        builder.row(InlineKeyboardButton(
-            text=f"{surah['surah_id']}. {surah['surah_name_uz']} ({surah['surah_name_ar']})",
-            callback_data=f"surah:{surah['surah_id']}"
-        ))
+        # Xatoni oldini olish: arabcha nomi bazada bo'lmasa xato bermaydi
+        ar_name = surah.get('surah_name_ar', '')
+        surah_text = f"{surah['surah_id']}. {surah.get('surah_name_uz', '')}"
+        if ar_name:
+            surah_text += f" ({ar_name})"
+            
+        builder.row(InlineKeyboardButton(text=surah_text, callback_data=f"surah:{surah['surah_id']}"))
     
     nav_buttons = []
     btn_prev = "⬅️ Олдинги" if script == 'cyrillic' else "⬅️ Oldingi"
@@ -53,7 +56,7 @@ def get_verses_keyboard(surah_id: int, total_verses: int, page: int = 1, limit: 
             row = []
     if row:
         builder.row(*row)
-        
+            
     nav_buttons = []
     btn_prev = "⬅️ Олдинги" if script == 'cyrillic' else "⬅️ Oldingi"
     btn_next = "Кейинги ➡️" if script == 'cyrillic' else "Keyingi ➡️"
