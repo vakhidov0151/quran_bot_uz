@@ -135,3 +135,19 @@ async def search_verses_by_text(keyword: str):
                 v['surah_name_uz'] = cyrillic_to_latin(v['surah_name_uz'])
                 verses.append(v)
             return verses
+# Foydalanuvchining yozuv turini (latin yoki cyrillic) saqlash
+async def set_user_script(user_id: int, script: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+            UPDATE users SET script = ? WHERE user_id = ?
+        """, (script, user_id))
+        await db.commit()
+
+# Foydalanuvchining tanlagan yozuvini olish (standart 'latin')
+async def get_user_script(user_id: int) -> str:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT script FROM users WHERE user_id = ?", (user_id,)) as cursor:
+            row = await cursor.fetchone()
+            if row and row[0]:
+                return row[0]
+            return 'latin' # Agar tanlamagan bo'lsa standart lotin bo'ladi
