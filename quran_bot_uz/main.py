@@ -3,16 +3,18 @@ import logging
 import datetime
 import aiohttp
 import aiosqlite
+import os
 from aiogram import Bot, Dispatcher
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from config import BOT_TOKEN
-from handlers import start, search
+from config import BOT_TOKEN, DB_PATH
+from handlers import start
 
 logging.basicConfig(level=logging.INFO)
 
 async def send_prayer_notifications(bot: Bot):
     try:
-        async with aiosqlite.connect("data/quran.db") as db:
+        # Baza manzilini to'g'ri oladi
+        async with aiosqlite.connect(DB_PATH) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute("SELECT user_id, latitude, longitude FROM users WHERE latitude IS NOT NULL") as cursor:
                 users = await cursor.fetchall()
@@ -57,10 +59,15 @@ async def main():
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher()
 
+    # Asosiy routerlarni ulash
     dp.include_router(start.router)
-    dp.include_router(search.router)
 
-    async with aiosqlite.connect("quran.db") as db:
+    # Baza fayli mavjudligini tekshirish
+    if not os.path.exists(DB_PATH):
+        print(f"DIQQAT: {DB_PATH} fayli topilmadi! Bot bo'sh baza yaratadi.")
+
+    # Bazani ulash va jadvallarni tekshirish
+    async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
@@ -68,7 +75,6 @@ async def main():
             longitude REAL
         )
         """)
-        # Yozuv turini saqlash ustunini xavfsiz qo'shish
         try:
             await db.execute("ALTER TABLE users ADD COLUMN script TEXT DEFAULT 'latin'")
         except Exception:
@@ -79,7 +85,7 @@ async def main():
     scheduler.add_job(send_prayer_notifications, "cron", hour=5, minute=0, args=(bot,))
     scheduler.start()
 
-    print("🚀 Bot ishga tushdi!")
+    print("🚀 Bot muvaffaqiyatli ishga tushdi!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
