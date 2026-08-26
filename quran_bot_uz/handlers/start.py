@@ -9,7 +9,6 @@ from config import DB_PATH
 
 router = Router()
 
-# 1. /start buyrug'i bosilganda
 @router.message(CommandStart())
 async def cmd_start(message: Message):
     welcome_text = (
@@ -19,7 +18,6 @@ async def cmd_start(message: Message):
     )
     await message.answer(welcome_text, reply_markup=get_main_keyboard(), parse_mode="Markdown")
 
-# 2. Lokatsiya yuborilganda
 @router.message(F.location)
 async def handle_location(message: Message):
     try:
@@ -37,7 +35,6 @@ async def handle_location(message: Message):
     except Exception as e:
         await message.answer(f"Lokatsiyani saqlashda xatolik yuz berdi: {e}")
 
-# 3. Namoz vaqtlari bosilganda (Aladhan API)
 @router.message(F.text == "🕌 Namoz vaqtlari")
 async def prayer_times_handler(message: Message):
     try:
@@ -51,7 +48,8 @@ async def prayer_times_handler(message: Message):
         lat = location['latitude']
         lon = location['longitude']
         
-        url = f"http://api.aladhan.com/v1/timings?latitude={lat}&longitude={lon}&method=3"
+        # YANGILANISH: method=1 va school=1 qo'shildi (Hanafiya mazhabi uchun)
+        url = f"http://api.aladhan.com/v1/timings?latitude={lat}&longitude={lon}&method=1&school=1"
         
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as response:
@@ -77,7 +75,6 @@ async def prayer_times_handler(message: Message):
     except Exception as e:
         await message.answer(f"Tizimda xatolik yuz berdi: {e}")
 
-# 4. Kun oyati bosilganda
 @router.message(F.text == "✨ Kun oyati")
 async def daily_verse_handler(message: Message):
     try:
@@ -99,7 +96,6 @@ async def daily_verse_handler(message: Message):
     except Exception as e:
         await message.answer(f"Oyatni yuklashda xatolik yuz berdi: {e}")
 
-# 5. Qur'on o'qish tugmasi bosilganda
 @router.message(F.text == "📖 Qur'on o'qish va tinglash")
 async def quran_read_handler(message: Message):
     await message.answer(
