@@ -4,4 +4,4 @@ from dotenv import load_dotenv
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-DB_PATH = "quran.db"
+DB_PATH = "data/quran.db"
