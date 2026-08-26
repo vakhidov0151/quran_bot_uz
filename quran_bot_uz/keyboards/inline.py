@@ -54,6 +54,10 @@ def get_verses_keyboard(surah_id: int, total_verses: int, page: int = 1, limit: 
     if end_idx < total_verses:
         nav_buttons.append(InlineKeyboardButton(text="Keyingi ➡️", callback_data=f"vpage:{surah_id}:{page+1}"))
     
+    # MANA SHU QATOR TUSHIB QOLGAN EDI:
+    if nav_buttons:
+        builder.row(*nav_buttons)
+        
     builder.row(InlineKeyboardButton(text="🔙 Suralarga qaytish", callback_data="back_to_surahs"))
     
     return builder.as_markup()
