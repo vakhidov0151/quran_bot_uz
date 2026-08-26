@@ -60,7 +60,7 @@ async def main():
     dp.include_router(start.router)
     dp.include_router(search.router)
 
-    async with aiosqlite.connect("data/quran.db") as db:
+    async with aiosqlite.connect("quran.db") as db:
         await db.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
