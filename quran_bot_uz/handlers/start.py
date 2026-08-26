@@ -64,9 +64,6 @@ async def handle_location(message: Message):
     except Exception as e:
         await message.answer(f"Lokatsiyani saqlashda xatolik yuz berdi: {e}")
 
-# ==========================================
-# YANGILANISH: Aqlli zaxira (Fallback) tizimi
-# ==========================================
 @router.message(F.text == "🕌 Namoz vaqtlari")
 async def prayer_times_handler(message: Message):
     try:
@@ -82,14 +79,14 @@ async def prayer_times_handler(message: Message):
         region = get_nearest_region(lat, lon)
         
         islom_url = f"https://islomapi.uz/api/present/day?region={region}"
-        # Zaxira uchun Aladhan manzili (Hanafiya: school=1, Markaziy Osiyo: method=1)
-        aladhan_url = f"http://api.aladhan.com/v1/timings?latitude={lat}&longitude={lon}&method=1&school=1"
+        
+        # YANGILANISH: Aladhan tizimini aynan siz aytgandek qilib O'zbekistonga mosladik (tune orqali)
+        # Ketma-ketlik: Imsak, Fajr, Sunrise, Dhuhr, Asr, Maghrib(+5), Sunset, Isha(-18), Midnight
+        aladhan_url = f"http://api.aladhan.com/v1/timings?latitude={lat}&longitude={lon}&method=1&school=1&tune=0,0,0,0,0,5,0,-18,0"
         
         async with aiohttp.ClientSession() as session:
-            # 1-URINISH: Islom.uz saytidan olishga harakat qilamiz
             try:
                 async with session.get(islom_url, timeout=5) as response:
-                    # Agar server 200 (Yaxshi) degan javob qilsa, islom.uz dan olamiz
                     if response.status == 200:
                         data = await response.json(content_type=None)
                         if 'times' in data:
@@ -106,18 +103,18 @@ async def prayer_times_handler(message: Message):
                                 f"*(Manba: O'zbekiston Musulmonlari Idorasi)*"
                             )
                             await message.answer(text, parse_mode="Markdown")
-                            return # Ish bajarildi, shu yerda to'xtatamiz
+                            return 
             except Exception:
-                pass # Agar Islom.uz dan xato kelsa, indamay keyingi qadamga o'tamiz
+                pass 
 
-            # 2-URINISH: Agar Islom.uz o'chiq bo'lsa, avtomat Aladhanni ishga tushiramiz
+            # Agar Islom.uz ishlamayotgan bo'lsa, moslashtirilgan zaxira ishga tushadi:
             async with session.get(aladhan_url) as response:
                 data = await response.json(content_type=None)
                 if data['code'] == 200:
                     timings = data['data']['timings']
                     date = data['data']['date']['readable']
                     text = (
-                        f"🕌 **Namoz vaqtlari (Zaxira)**\n"
+                        f"🕌 **Namoz vaqtlari (Zaxira - {region} ga moslangan)**\n"
                         f"🗓 Sana: {date}\n\n"
                         f"🌅 Bomdod: {timings['Fajr']}\n"
                         f"🌄 Quyosh: {timings['Sunrise']}\n"
@@ -125,7 +122,7 @@ async def prayer_times_handler(message: Message):
                         f"🌇 Asr: {timings['Asr']}\n"
                         f"🌆 Shom: {timings['Maghrib']}\n"
                         f"🌃 Xufton: {timings['Isha']}\n\n"
-                        f"*(Eslatma: islom.uz serverida vaqtinchalik uzilish bo'lgani uchun vaqtlar xalqaro tizimdan olindi)*"
+                        f"*(Eslatma: islom.uz serverida vaqtinchalik uzilish bo'lgani uchun vaqtlar xalqaro zaxira tizimidan O'zbekistonga moslab olindi)*"
                     )
                     await message.answer(text, parse_mode="Markdown")
                 else:
