@@ -351,3 +351,19 @@ async def search_verses_handler(message: Message):
         text = text[:4000] + "...\n(Ko'p natija topildi / Кўп натижа топилди)"
         
     await message.answer(text, parse_mode="Markdown")
+# BAZANI TEKSHIRISH UCHUN MAXSUS BUYRUQ
+@router.message(F.text == "/testdb")
+async def test_db_handler(message: Message):
+    import aiosqlite
+    from config import DB_PATH
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            async with db.execute("SELECT name FROM sqlite_master WHERE type='table';") as cursor:
+                tables = await cursor.fetchall()
+                if tables:
+                    table_names = [t[0] for t in tables]
+                    await message.answer(f"Bazada quyidagi jadvallar bor:\n{', '.join(table_names)}")
+                else:
+                    await message.answer("Baza bom-bo'sh! Jadvallar yo'q.")
+    except Exception as e:
+        await message.answer(f"Baza xatoligi: {e}")
