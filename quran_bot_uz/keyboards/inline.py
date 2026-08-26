@@ -1,15 +1,17 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-def get_audio_keyboard(surah_id: int, verse_id: int):
+def get_audio_keyboard(surah_id: int, verse_id: int, script='latin'):
+    ghamdi = "🎙 Саъд ал-Ғомидий" if script == 'cyrillic' else "🎙 Sa'd al-G'omidiy"
+    hussary = "🎙 Халил ал-Ҳусорий" if script == 'cyrillic' else "🎙 Xalil al-Husoriy"
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="🎙 Sa'd al-G'omidiy", callback_data=f"audio:ghamdi:{surah_id}:{verse_id}"),
-            InlineKeyboardButton(text="🎙 Xalil al-Husoriy", callback_data=f"audio:hussary:{surah_id}:{verse_id}")
+            InlineKeyboardButton(text=ghamdi, callback_data=f"audio:ghamdi:{surah_id}:{verse_id}"),
+            InlineKeyboardButton(text=hussary, callback_data=f"audio:hussary:{surah_id}:{verse_id}")
         ]
     ])
 
-def get_surahs_keyboard(surahs, page: int = 1, limit: int = 10):
+def get_surahs_keyboard(surahs, page: int = 1, limit: int = 10, script='latin'):
     builder = InlineKeyboardBuilder()
     start_idx = (page - 1) * limit
     end_idx = start_idx + limit
@@ -21,20 +23,24 @@ def get_surahs_keyboard(surahs, page: int = 1, limit: int = 10):
         ))
     
     nav_buttons = []
+    btn_prev = "⬅️ Олдинги" if script == 'cyrillic' else "⬅️ Oldingi"
+    btn_next = "Кейинги ➡️" if script == 'cyrillic' else "Keyingi ➡️"
+    
     if page > 1:
-        nav_buttons.append(InlineKeyboardButton(text="⬅️ Oldingi", callback_data=f"page:{page-1}"))
+        nav_buttons.append(InlineKeyboardButton(text=btn_prev, callback_data=f"page:{page-1}"))
     if end_idx < len(surahs):
-        nav_buttons.append(InlineKeyboardButton(text="Keyingi ➡️", callback_data=f"page:{page+1}"))
+        nav_buttons.append(InlineKeyboardButton(text=btn_next, callback_data=f"page:{page+1}"))
     
     if nav_buttons:
         builder.row(*nav_buttons)
         
     return builder.as_markup()
 
-def get_verses_keyboard(surah_id: int, total_verses: int, page: int = 1, limit: int = 30):
+def get_verses_keyboard(surah_id: int, total_verses: int, page: int = 1, limit: int = 30, script='latin'):
     builder = InlineKeyboardBuilder()
     
-    builder.row(InlineKeyboardButton(text="▶️ To'liq surani tinglash", callback_data=f"full:{surah_id}"))
+    btn_full = "▶️ Тўлиқ сурани тинглаш" if script == 'cyrillic' else "▶️ To'liq surani tinglash"
+    builder.row(InlineKeyboardButton(text=btn_full, callback_data=f"full:{surah_id}"))
     
     start_idx = (page - 1) * limit + 1
     end_idx = min(start_idx + limit - 1, total_verses)
@@ -49,15 +55,18 @@ def get_verses_keyboard(surah_id: int, total_verses: int, page: int = 1, limit: 
         builder.row(*row)
         
     nav_buttons = []
+    btn_prev = "⬅️ Олдинги" if script == 'cyrillic' else "⬅️ Oldingi"
+    btn_next = "Кейинги ➡️" if script == 'cyrillic' else "Keyingi ➡️"
+    btn_back = "🔙 Сураларга қайтиш" if script == 'cyrillic' else "🔙 Suralarga qaytish"
+
     if page > 1:
-        nav_buttons.append(InlineKeyboardButton(text="⬅️ Oldingi", callback_data=f"vpage:{surah_id}:{page-1}"))
+        nav_buttons.append(InlineKeyboardButton(text=btn_prev, callback_data=f"vpage:{surah_id}:{page-1}"))
     if end_idx < total_verses:
-        nav_buttons.append(InlineKeyboardButton(text="Keyingi ➡️", callback_data=f"vpage:{surah_id}:{page+1}"))
+        nav_buttons.append(InlineKeyboardButton(text=btn_next, callback_data=f"vpage:{surah_id}:{page+1}"))
     
-    # MANA SHU QATOR TUSHIB QOLGAN EDI:
     if nav_buttons:
         builder.row(*nav_buttons)
         
-    builder.row(InlineKeyboardButton(text="🔙 Suralarga qaytish", callback_data="back_to_surahs"))
+    builder.row(InlineKeyboardButton(text=btn_back, callback_data="back_to_surahs"))
     
     return builder.as_markup()
