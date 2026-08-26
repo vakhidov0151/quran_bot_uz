@@ -17,35 +17,35 @@ from config import DB_PATH
 router = Router()
 
 # ==========================================
-# 🛠 1. BAZANI TEKSHIRUVCHI SUPER BUYRUQ (ENG TEPADA!)
+# 🛠 BAZANI QIDIRUVCHI RADAR (ENG TEPADA!)
 # ==========================================
 @router.message(Command("testdb"))
 async def test_db_handler(message: Message):
-    import aiosqlite
-    try:
-        if not os.path.exists(DB_PATH):
-            await message.answer(f"❌ Fayl topilmadi: {DB_PATH}")
-            return
+    import os
+    text = "🔍 **Serverdagi bazalar qidirilmoqda...**\n\n"
+    topildi = False
+    
+    # Asosiy papkani tekshirish
+    text += "📁 **Asosiy papkada:**\n"
+    for f in os.listdir('.'):
+        if f.endswith('.db') or f.endswith('.sqlite') or 'quran' in f.lower():
+            size = os.path.getsize(f) / (1024 * 1024)
+            text += f"📄 `{f}` ({size:.2f} MB)\n"
+            topildi = True
             
-        async with aiosqlite.connect(DB_PATH) as db:
-            async with db.execute("SELECT name FROM sqlite_master WHERE type='table';") as cursor:
-                tables = await cursor.fetchall()
-                if not tables:
-                    await message.answer("❌ Baza ulandi, lekin ichi bom-bo'sh (hech qanday jadval yo'q)!")
-                    return
+    # Data papkasini tekshirish
+    if os.path.exists('data'):
+        text += "\n📁 **'data' papkasida:**\n"
+        for f in os.listdir('data'):
+            if f.endswith('.db') or f.endswith('.sqlite') or 'quran' in f.lower():
+                size = os.path.getsize(f'data/{f}') / (1024 * 1024)
+                text += f"📄 `data/{f}` ({size:.2f} MB)\n"
+                topildi = True
                 
-                table_names = [t[0] for t in tables if t[0] != 'sqlite_sequence']
-                info = f"✅ BAZA TOPILDI!\n\nJadvallar ro'yxati ({len(table_names)} ta):\n\n"
-                
-                for t_name in table_names:
-                    async with db.execute(f"PRAGMA table_info({t_name})") as col_cursor:
-                        cols = await col_cursor.fetchall()
-                        col_names = [c[1] for c in cols]
-                        info += f"📁 **{t_name}**:\n- {', '.join(col_names)}\n\n"
-                
-                await message.answer(info[:4000])
-    except Exception as e:
-        await message.answer(f"❌ Baza o'qishda xatolik: {e}")
+    if not topildi:
+        text += "❌ Hech qanday baza topilmadi!"
+        
+    await message.answer(text)
 
 def get_nearest_region(lat, lon):
     regions = {
