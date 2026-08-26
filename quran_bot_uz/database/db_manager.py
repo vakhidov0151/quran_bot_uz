@@ -29,21 +29,17 @@ def latin_to_cyrillic(text: str) -> str:
     result = [mapping.get(char, char) for char in text]
     return "".join(result)
 
-# Baza ustunlarini tekshiruvchi va xatoni chetlab o'tuvchi xavfsiz funksiya
 async def ensure_user(user_id: int):
     async with aiosqlite.connect(DB_PATH) as db:
         try:
             await db.execute("ALTER TABLE users ADD COLUMN script TEXT DEFAULT 'latin'")
             await db.commit()
         except:
-            pass # Ustun allaqachon mavjud bo'lsa hech narsa qilmaydi
-            
+            pass
         async with db.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,)) as cursor:
-            row = await cursor.fetchone()
-        
-        if not row:
-            await db.execute("INSERT INTO users (user_id, script) VALUES (?, 'latin')", (user_id,))
-            await db.commit()
+            if not await cursor.fetchone():
+                await db.execute("INSERT INTO users (user_id, script) VALUES (?, 'latin')", (user_id,))
+                await db.commit()
 
 async def set_user_script(user_id: int, script: str):
     await ensure_user(user_id)
@@ -56,47 +52,45 @@ async def get_user_script(user_id: int) -> str:
         async with aiosqlite.connect(DB_PATH) as db:
             async with db.execute("SELECT script FROM users WHERE user_id = ?", (user_id,)) as cursor:
                 row = await cursor.fetchone()
-                if row and row[0]: 
-                    return row[0]
-    except Exception:
+                if row and row[0]: return row[0]
+    except:
         pass
     return 'latin'
+
+# Barcha matnlarni xatosiz lotinga tarjima qiluvchi aqlli funksiya
+def translate_dict(d: dict, script: str):
+    if script == 'cyrillic': return d
+    for k, v in d.items():
+        if isinstance(v, str) and not v.startswith('http') and not any('\u0600' <= c <= '\u06FF' for c in v):
+            d[k] = cyrillic_to_latin(v)
+    return d
 
 async def get_all_surahs(script='latin'):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT * FROM surahs") as cursor:
             rows = await cursor.fetchall()
-            surahs = []
-            for row in rows:
-                d = dict(row)
-                if script == 'latin': d['surah_name_uz'] = cyrillic_to_latin(d['surah_name_uz'])
-                surahs.append(d)
-            return surahs
+            return [translate_dict(dict(row), script) for row in rows]
 
 async def get_surah_info(surah_id: int, script='latin'):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute("SELECT * FROM surahs WHERE surah_id = ?", (surah_id,)) as cursor:
-            row = await cursor.fetchone()
-            if row:
-                d = dict(row)
-                if script == 'latin': d['surah_name_uz'] = cyrillic_to_latin(d['surah_name_uz'])
-                return d
-            return None
+        try:
+            cursor = await db.execute("SELECT * FROM surahs WHERE surah_id = ?", (surah_id,))
+        except:
+            cursor = await db.execute("SELECT * FROM surahs WHERE id = ?", (surah_id,))
+        row = await cursor.fetchone()
+        return translate_dict(dict(row), script) if row else None
 
 async def get_verse(surah_id: int, verse_id: int, script='latin'):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute("SELECT * FROM verses WHERE surah_id = ? AND verse_id = ?", (surah_id, verse_id)) as cursor:
-            row = await cursor.fetchone()
-            if row:
-                d = dict(row)
-                if script == 'latin':
-                    d['text_uzbek'] = cyrillic_to_latin(d['text_uzbek'])
-                    d['surah_name_uz'] = cyrillic_to_latin(d['surah_name_uz'])
-                return d
-            return None
+        try:
+            cursor = await db.execute("SELECT * FROM verses WHERE surah_id = ? AND verse_id = ?", (surah_id, verse_id))
+        except:
+            cursor = await db.execute("SELECT * FROM verses WHERE sura = ? AND ayah = ?", (surah_id, verse_id))
+        row = await cursor.fetchone()
+        return translate_dict(dict(row), script) if row else None
 
 async def save_user_location(user_id: int, lat: float, lon: float):
     await ensure_user(user_id)
@@ -112,66 +106,38 @@ async def get_user_location(user_id: int):
 
 async def get_all_duas(script='latin'):
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""CREATE TABLE IF NOT EXISTS duas (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, text_arabic TEXT, text_translit TEXT, text_uzbek TEXT)""")
-        
+        await db.execute("CREATE TABLE IF NOT EXISTS duas (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, text_arabic TEXT, text_translit TEXT, text_uzbek TEXT)")
         async with db.execute("SELECT COUNT(*) FROM duas") as cursor:
             if (await cursor.fetchone())[0] == 0:
                 await db.execute("INSERT INTO duas (title, text_arabic, text_translit, text_uzbek) VALUES (?, ?, ?, ?)",
-                    ("Rabbano atina", "رَبَّنَا آتِنَا فِي الدُّنْيَا حَسَنَةً وَفِي الْآخِرَةِ حَسَنَةً وَقِنَا عَذَابَ النَّارِ", 
-                     "Rabbana atina fid-dunya hasanatan wa fil-akhirati hasanatan wa qina azaban-nar", 
-                     "Раббимиз! Бизга бу дунёда ҳам, охиратда ҳам яхшилик бер ва бизни дўзах азобидан сақла."))
+                    ("Rabbano atina", "رَبَّنَا آتِنَا فِي الدُّنْيَا حَسَنَةً وَفِي الْآخِرَةِ حَسَنَةً وَقِنَا عَذَابَ النَّارِ", "Rabbana atina fid-dunya...", "Раббимиз! Бизга бу дунёда..."))
                 await db.commit()
-                
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT * FROM duas") as cursor:
             rows = await cursor.fetchall()
-            duas = []
-            for row in rows:
-                d = dict(row)
-                if script == 'latin':
-                    d['title'] = cyrillic_to_latin(d['title'])
-                    d['text_uzbek'] = cyrillic_to_latin(d['text_uzbek'])
-                duas.append(d)
-            return duas
+            return [translate_dict(dict(row), script) for row in rows]
 
 async def get_dua_by_id(dua_id: int, script='latin'):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT * FROM duas WHERE id = ?", (dua_id,)) as cursor:
             row = await cursor.fetchone()
-            if row:
-                d = dict(row)
-                if script == 'latin':
-                    d['title'] = cyrillic_to_latin(d['title'])
-                    d['text_uzbek'] = cyrillic_to_latin(d['text_uzbek'])
-                return d
-            return None
+            return translate_dict(dict(row), script) if row else None
 
 async def search_verses_by_text(keyword: str, script='latin'):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         search_word = latin_to_cyrillic(keyword) if script == 'latin' else keyword
-        async with db.execute("SELECT * FROM verses WHERE text_uzbek LIKE ? LIMIT 10", (f"%{search_word}%",)) as cursor:
-            rows = await cursor.fetchall()
-            verses = []
-            for row in rows:
-                v = dict(row)
-                if script == 'latin':
-                    v['text_uzbek'] = cyrillic_to_latin(v['text_uzbek'])
-                    v['surah_name_uz'] = cyrillic_to_latin(v['surah_name_uz'])
-                verses.append(v)
-            return verses
+        try:
+            cursor = await db.execute("SELECT * FROM verses WHERE text_uzbek LIKE ? LIMIT 10", (f"%{search_word}%",))
+        except:
+            cursor = await db.execute("SELECT * FROM verses WHERE text LIKE ? LIMIT 10", (f"%{search_word}%",))
+        rows = await cursor.fetchall()
+        return [translate_dict(dict(row), script) for row in rows]
 
 async def get_random_verse(script='latin'):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT * FROM verses ORDER BY RANDOM() LIMIT 1") as cursor:
             row = await cursor.fetchone()
-            if row:
-                d = dict(row)
-                if script == 'latin':
-                    d['text_uzbek'] = cyrillic_to_latin(d['text_uzbek'])
-                    d['surah_name_uz'] = cyrillic_to_latin(d['surah_name_uz'])
-                return d
-            return None
+            return translate_dict(dict(row), script) if row else None
