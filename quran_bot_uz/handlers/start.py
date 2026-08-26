@@ -5,7 +5,8 @@ from aiogram import Router, F
 from aiogram.filters import CommandStart
 from aiogram.types import Message
 from keyboards.reply import get_main_keyboard
-from database.db_manager import save_user_location, get_user_location
+from keyboards.inline import get_surahs_keyboard # YANGI: Tugmalarni chaqirdik
+from database.db_manager import save_user_location, get_user_location, get_all_surahs # YANGI: Suralarni bazadan tortish
 from config import DB_PATH
 
 router = Router()
@@ -79,9 +80,6 @@ async def prayer_times_handler(message: Message):
         region = get_nearest_region(lat, lon)
         
         islom_url = f"https://islomapi.uz/api/present/day?region={region}"
-        
-        # YANGILANISH: Aladhan tizimini aynan siz aytgandek qilib O'zbekistonga mosladik (tune orqali)
-        # Ketma-ketlik: Imsak, Fajr, Sunrise, Dhuhr, Asr, Maghrib(+5), Sunset, Isha(-18), Midnight
         aladhan_url = f"http://api.aladhan.com/v1/timings?latitude={lat}&longitude={lon}&method=1&school=1&tune=0,0,0,0,0,5,0,-18,0"
         
         async with aiohttp.ClientSession() as session:
@@ -107,7 +105,6 @@ async def prayer_times_handler(message: Message):
             except Exception:
                 pass 
 
-            # Agar Islom.uz ishlamayotgan bo'lsa, moslashtirilgan zaxira ishga tushadi:
             async with session.get(aladhan_url) as response:
                 data = await response.json(content_type=None)
                 if data['code'] == 200:
@@ -152,10 +149,26 @@ async def daily_verse_handler(message: Message):
     except Exception as e:
         await message.answer(f"Oyatni yuklashda xatolik yuz berdi: {e}")
 
+# ==========================================
+# YANGILANISH: Suralar ro'yxatini chiqaruvchi qism
+# ==========================================
 @router.message(F.text == "📖 Qur'on o'qish va tinglash")
 async def quran_read_handler(message: Message):
-    await message.answer(
-        "Qur'on o'qish uchun sura va oyat raqamini yuboring.\n"
-        "Misol uchun: `2:255` yoki `114:1`", 
-        parse_mode="Markdown"
-    )
+    try:
+        # Bazadan barcha suralarni tortib olamiz
+        surahs = await get_all_surahs()
+        
+        if not surahs:
+            await message.answer("Hozircha bazada suralar topilmadi. Baza to'ldirilishini kuting.")
+            return
+            
+        # Suralar ro'yxatini klaviatura qilib yasaymiz (1-sahifa 10 ta sura bilan)
+        keyboard = get_surahs_keyboard(surahs, page=1)
+        
+        await message.answer(
+            "📖 **O'qish yoki tinglash uchun kerakli surani tanlang:**", 
+            reply_markup=keyboard,
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        await message.answer(f"Suralarni yuklashda xatolik yuz berdi: {e}")
