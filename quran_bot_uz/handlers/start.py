@@ -74,9 +74,6 @@ async def handle_location(message: Message):
     msg_text = "✅ Joylashuvingiz muvaffaqiyatli saqlandi!\n\nEndi «🕌 Namoz vaqtlari» tugmasini bosing." if script == 'latin' else "✅ Жойлашувингиз муваффақиятли сақланди!\n\nЭнди «🕌 Намоз вақтлари» тугмасини босинг."
     await message.answer(msg_text, reply_markup=get_main_keyboard(script))
 
-# ==========================================
-# 🕌 TO'G'RILANGAN NAMOZ VAQTLARI
-# ==========================================
 @router.message(F.text.in_({"🕌 Namoz vaqtlari", "🕌 Намоз вақтлари"}))
 async def prayer_times_handler(message: Message):
     script = await get_user_script(message.from_user.id)
@@ -88,11 +85,9 @@ async def prayer_times_handler(message: Message):
         return
 
     try:
-        # Bazadan kelgan kordinatalarni aniq raqamga o'giramiz (xato bermasligi uchun)
         lat = float(location['latitude'])
         lon = float(location['longitude'])
         
-        # Butun dunyo bo'yicha aniq ishlaydigan API
         aladhan_url = f"http://api.aladhan.com/v1/timings?latitude={lat}&longitude={lon}&method=1&school=1"
         
         async with aiohttp.ClientSession() as session:
@@ -237,9 +232,6 @@ async def back_to_surahs_callback(call: CallbackQuery):
     await call.message.edit_text(msg_text, reply_markup=get_surahs_keyboard(surahs, page=1, script=script), parse_mode="Markdown")
     await call.answer()
 
-# ==========================================
-# 🎧 YANGI: TO'LIQ SURANI TINGLASH
-# ==========================================
 @router.callback_query(F.data.startswith("full:"))
 async def full_surah_callback(call: CallbackQuery):
     try:
@@ -248,14 +240,16 @@ async def full_surah_callback(call: CallbackQuery):
         surah_info = await get_surah_info(surah_id, script)
         
         if surah_info:
-            # 1 dan 114 gacha raqamlarni audio havola uchun 001, 015 qilib 3 xonali qilamiz
             padded_id = str(surah_id).zfill(3)
             audio_url = f"https://server8.mp3quran.net/afs/{padded_id}.mp3"
             name = surah_info.get('surah_name_uz', surah_info.get('name_uz', f"{surah_id}-sura"))
             
             msg = f"🎧 **{name}** (To'liq)\n🎙 Mishary Rashid Alafasy" if script == 'latin' else f"🎧 **{name}** (Тўлиқ)\n🎙 Мишари Рашид Алафасий"
             
-            await call.message.answer_audio(audio=audio_url, caption=msg, parse_mode="Markdown")
+            await call.message.answer(
+                f"{msg}\n\n📥 **Audio havola:** [Tinglash / Yuklab olish]({audio_url})", 
+                parse_mode="Markdown"
+            )
         else:
             await call.message.answer("Sura topilmadi." if script == 'latin' else "Сура топилмади.")
     except Exception as e:
