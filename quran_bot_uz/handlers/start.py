@@ -2,16 +2,19 @@ import math
 import aiohttp
 import aiosqlite
 from aiogram import Router, F
-from aiogram.filters import CommandStart
+from aiogram.filters import CommandStart, Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from keyboards.reply import get_main_keyboard
 from keyboards.inline import get_surahs_keyboard, get_verses_keyboard, get_audio_keyboard
-from database.db_manager import save_user_location, get_user_location, get_all_surahs, get_surah_info, get_verse
+from database.db_manager import (
+    save_user_location, get_user_location, get_all_surahs, 
+    get_surah_info, get_verse, get_all_duas, get_dua_by_id, search_verses_by_text
+)
 from config import DB_PATH
 
 router = Router()
 
-# Hududlar kordinatasi (Namoz vaqtlari uchun)
 def get_nearest_region(lat, lon):
     regions = {
         "Toshkent": (41.3110, 69.2405), "Andijon": (40.7820, 72.3442), "Buxoro": (39.7747, 64.4286),
@@ -29,7 +32,6 @@ def get_nearest_region(lat, lon):
             nearest_region = region
     return nearest_region
 
-# 1. /start buyrug'i
 @router.message(CommandStart())
 async def cmd_start(message: Message):
     welcome_text = (
@@ -39,7 +41,6 @@ async def cmd_start(message: Message):
     )
     await message.answer(welcome_text, reply_markup=get_main_keyboard(), parse_mode="Markdown")
 
-# 2. Lokatsiyani qabul qilish
 @router.message(F.location)
 async def handle_location(message: Message):
     try:
@@ -52,7 +53,7 @@ async def handle_location(message: Message):
     except Exception as e:
         await message.answer(f"Lokatsiyani saqlashda xatolik: {e}")
 
-# 3. Namoz vaqtlari (Islom.uz + Aladhan zaxirasi va tune sozlamasi bilan)
+# 🕌 Namoz vaqtlari + Hijriy sana qo'shilgan versiya
 @router.message(F.text == "🕌 Namoz vaqtlari")
 async def prayer_times_handler(message: Message):
     try:
@@ -75,11 +76,19 @@ async def prayer_times_handler(message: Message):
                         data = await response.json(content_type=None)
                         if 'times' in data:
                             times = data['times']
+                            hijri = data.get('hijri', {})
+                            hijri_date = f"{hijri.get('day', '')} {hijri.get('month', '')}, {hijri.get('year', '')}-yil"
+                            
                             text = (
-                                f"🕌 **Namoz vaqtlari ({region})**\n🗓 Sana: {data.get('date', '')}\n\n"
-                                f"🌅 Bomdod: {times.get('tong_saharlik', '')}\n🌄 Quyosh: {times.get('quyosh', '')}\n"
-                                f"☀️ Peshin: {times.get('peshin', '')}\n🌇 Asr: {times.get('asr', '')}\n"
-                                f"🌆 Shom (Iftor): {times.get('shom_iftor', '')}\n🌃 Xufton: {times.get('hufton', '')}\n\n"
+                                f"🕌 **Namoz vaqtlari ({region})**\n"
+                                f"🗓 Milodiy sana: {data.get('date', '')}\n"
+                                f"🌙 Hijriy sana: {hijri_date}\n\n"
+                                f"🌅 Bomdod: {times.get('tong_saharlik', '')}\n"
+                                f"🌄 Quyosh: {times.get('quyosh', '')}\n"
+                                f"☀️ Peshin: {times.get('peshin', '')}\n"
+                                f"🌇 Asr: {times.get('asr', '')}\n"
+                                f"🌆 Shom (Iftor): {times.get('shom_iftor', '')}\n"
+                                f"🌃 Xufton: {times.get('hufton', '')}\n\n"
                                 f"*(Manba: O'zbekiston Musulmonlari Idorasi)*"
                             )
                             await message.answer(text, parse_mode="Markdown")
@@ -91,12 +100,16 @@ async def prayer_times_handler(message: Message):
                 data = await response.json(content_type=None)
                 if data['code'] == 200:
                     timings = data['data']['timings']
+                    h_date = data['data']['date']['hijri']
+                    hijri_str = f"{h_date['day']} {h_date['month']['en']}, {h_date['year']}"
+                    
                     text = (
-                        f"🕌 **Namoz vaqtlari (Zaxira - {region} ga moslangan)**\n🗓 Sana: {data['data']['date']['readable']}\n\n"
+                        f"🕌 **Namoz vaqtlari (Zaxira - {region})**\n"
+                        f"🗓 Sana: {data['data']['date']['readable']}\n"
+                        f"🌙 Hijriy: {hijri_str}\n\n"
                         f"🌅 Bomdod: {timings['Fajr']}\n🌄 Quyosh: {timings['Sunrise']}\n"
                         f"☀️ Peshin: {timings['Dhuhr']}\n🌇 Asr: {timings['Asr']}\n"
-                        f"🌆 Shom: {timings['Maghrib']}\n🌃 Xufton: {timings['Isha']}\n\n"
-                        f"*(Eslatma: Zaxira tizimidan O'zbekistonga moslab olindi)*"
+                        f"🌆 Shom: {timings['Maghrib']}\n🌃 Xufton: {timings['Isha']}"
                     )
                     await message.answer(text, parse_mode="Markdown")
                 else:
@@ -104,7 +117,6 @@ async def prayer_times_handler(message: Message):
     except Exception as e:
         await message.answer(f"Xatolik: {e}")
 
-# 4. Kun oyati
 @router.message(F.text == "✨ Kun oyati")
 async def daily_verse_handler(message: Message):
     try:
@@ -119,7 +131,83 @@ async def daily_verse_handler(message: Message):
     except Exception as e:
         await message.answer(f"Oyatni yuklashda xatolik: {e}")
 
-# 5. Qur'on o'qish (Suralar ro'yxati)
+
+# ==========================================
+# 🤲 DUOLAR BO'LIMI
+# ==========================================
+@router.message(F.text == "🤲 Duolar")
+async def duas_menu_handler(message: Message):
+    duas = await get_all_duas()
+    if not duas:
+        await message.answer("Hozircha bazada duolar qo'shilmagan.")
+        return
+        
+    builder = InlineKeyboardBuilder()
+    for dua in duas:
+        builder.row(InlineKeyboardButton(text=dua['title'], callback_data=f"dua:{dua['id']}"))
+        
+    await message.answer("🤲 **Kerakli duoni tanlang:**", reply_markup=builder.as_markup(), parse_mode="Markdown")
+
+@router.callback_query(F.data.startswith("dua:"))
+async def dua_detail_callback(call: CallbackQuery):
+    dua_id = int(call.data.split(":")[1])
+    dua = await get_dua_by_id(dua_id)
+    if dua:
+        text = (
+            f"🤲 **{dua['title']}**\n\n"
+            f"📝 {dua['text_arabic']}\n\n"
+            f"📖 O'qilishi: _{dua['text_translit']}_\n\n"
+            f"🇺🇿 Ma'nosi: {dua['text_uzbek']}"
+        )
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Duolarga qaytish", callback_data="back_to_duas")]
+        ])
+        await call.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+    await call.answer()
+
+@router.callback_query(F.data == "back_to_duas")
+async def back_to_duas_callback(call: CallbackQuery):
+    duas = await get_all_duas()
+    builder = InlineKeyboardBuilder()
+    for dua in duas:
+        builder.row(InlineKeyboardButton(text=dua['title'], callback_data=f"dua:{dua['id']}"))
+    await call.message.edit_text("🤲 **Kerakli duoni tanlang:**", reply_markup=builder.as_markup(), parse_mode="Markdown")
+    await call.answer()
+
+
+# ==========================================
+# 🔍 MATN BO'YICHA QIDIRUV
+# ==========================================
+@router.message(F.text == "🔍 Qidiruv")
+async def search_prompt_handler(message: Message):
+    await message.answer(
+        "🔍 **Qur'ondan matn bo'yicha qidirish**\n\n"
+        "Qidirmoqchi bo'lgan so'zingizni yuboring (masalan: _sabr_, _rahmat_, _jannat_):",
+        parse_mode="Markdown"
+    )
+
+@router.message(F.text & ~F.text.in_({"📖 Qur'on o'qish va tinglash", "🕌 Namoz vaqtlari", "✨ Kun oyati", "🤲 Duolar", "🔍 Qidiruv", "📿 Elektron tasbeh"}))
+async def search_verses_handler(message: Message):
+    keyword = message.text.strip()
+    if len(keyword) < 2:
+        await message.answer("Iltimos, qidirish uchun kamida 2 ta harfdan iborat so'z yuboring.")
+        return
+        
+    verses = await search_verses_by_text(keyword)
+    if not verses:
+        await message.answer(f"«{keyword}» so'zi bo'yicha hech qanday oyat topilmadi.")
+        return
+        
+    text = f"🔍 **«{keyword}» bo'yicha natijalar (topildi: {len(verses)} ta):**\n\n"
+    for v in verses:
+        text += f"📖 **{v['surah_name_uz']} surasi, {v['verse_id']}-oyat**\n{v['text_uzbek']}\n\n-------------------\n"
+        
+    await message.answer(text, parse_mode="Markdown")
+
+
+# ==========================================
+# 📖 QUR'ON VA ELEKTRON TASBEH QISmlari (O'zgarishsiz qoldi)
+# ==========================================
 @router.message(F.text == "📖 Qur'on o'qish va tinglash")
 async def quran_read_handler(message: Message):
     try:
@@ -132,10 +220,6 @@ async def quran_read_handler(message: Message):
     except Exception as e:
         await message.answer(f"Xatolik: {e}")
 
-
-# ==========================================
-# 6. ELEKTRON TASBEH MANTIQI
-# ==========================================
 DHIKRS = [
     {"text": "Subhanalloh (سُبْحَانَ ٱللَّٰهِ)", "limit": 33},
     {"text": "Alhamdulillah (ٱلْحَمْدُ لِلَّٰهِ)", "limit": 33},
@@ -189,10 +273,6 @@ async def tasbih_callback(call: CallbackQuery):
         pass
     await call.answer()
 
-
-# ==========================================
-# INLINE TUGMALAR (Suralar va Oyatlar)
-# ==========================================
 @router.callback_query(F.data.startswith("page:"))
 async def surah_page_callback(call: CallbackQuery):
     page = int(call.data.split(":")[1])
