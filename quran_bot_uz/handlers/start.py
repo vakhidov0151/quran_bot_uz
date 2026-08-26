@@ -1,3 +1,4 @@
+import math
 import aiohttp
 import aiosqlite
 from aiogram import Router, F
@@ -8,6 +9,37 @@ from database.db_manager import save_user_location, get_user_location
 from config import DB_PATH
 
 router = Router()
+
+# ==========================================
+# YANGI: Kordinatadan eng yaqin shaharni aniqlash formulasi
+# ==========================================
+def get_nearest_region(lat, lon):
+    regions = {
+        "Toshkent": (41.3110, 69.2405),
+        "Andijon": (40.7820, 72.3442),
+        "Buxoro": (39.7747, 64.4286),
+        "Farg'ona": (40.3863, 71.7161),
+        "Jizzax": (40.1158, 67.8422),
+        "Urganch": (41.5500, 60.6333),
+        "Namangan": (41.0010, 71.6675),
+        "Navoiy": (40.0844, 65.3791),
+        "Qarshi": (38.8611, 65.7952),
+        "Samarqand": (39.6270, 66.9749),
+        "Guliston": (40.4897, 68.7842),
+        "Termiz": (37.2241, 67.2783),
+        "Nukus": (42.4619, 59.6166)
+    }
+    
+    nearest_region = "Toshkent"
+    min_dist = float('inf')
+    
+    for region, (r_lat, r_lon) in regions.items():
+        dist = math.sqrt((lat - r_lat)**2 + (lon - r_lon)**2)
+        if dist < min_dist:
+            min_dist = dist
+            nearest_region = region
+            
+    return nearest_region
 
 @router.message(CommandStart())
 async def cmd_start(message: Message):
@@ -35,6 +67,9 @@ async def handle_location(message: Message):
     except Exception as e:
         await message.answer(f"Lokatsiyani saqlashda xatolik yuz berdi: {e}")
 
+# ==========================================
+# YANGILANISH: Islom.uz API'siga ulanish
+# ==========================================
 @router.message(F.text == "🕌 Namoz vaqtlari")
 async def prayer_times_handler(message: Message):
     try:
@@ -48,26 +83,31 @@ async def prayer_times_handler(message: Message):
         lat = location['latitude']
         lon = location['longitude']
         
-        # YANGILANISH: method=1 va school=1 qo'shildi (Hanafiya mazhabi uchun)
-        url = f"http://api.aladhan.com/v1/timings?latitude={lat}&longitude={lon}&method=1&school=1"
+        # 1. Kordinatadan shaharni topamiz
+        region = get_nearest_region(lat, lon)
+        
+        # 2. Islom.uz dan vaqtlarni tortib olamiz
+        url = f"https://islomapi.uz/api/present/day?region={region}"
         
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as response:
                 data = await response.json()
                 
-        if data['code'] == 200:
-            timings = data['data']['timings']
-            date = data['data']['date']['readable']
+        if 'times' in data:
+            times = data['times']
+            date = data.get('date', '')
+            weekday = data.get('weekday', '')
             
             text = (
-                f"🕌 **Namoz vaqtlari**\n"
-                f"🗓 Sana: {date}\n\n"
-                f"🌅 Bomdod: {timings['Fajr']}\n"
-                f"🌄 Quyosh: {timings['Sunrise']}\n"
-                f"☀️ Peshin: {timings['Dhuhr']}\n"
-                f"🌇 Asr: {timings['Asr']}\n"
-                f"🌆 Shom: {timings['Maghrib']}\n"
-                f"🌃 Xufton: {timings['Isha']}\n"
+                f"🕌 **Namoz vaqtlari ({region})**\n"
+                f"🗓 Sana: {date}, {weekday}\n\n"
+                f"🌅 Bomdod: {times.get('tong_saharlik', '')}\n"
+                f"🌄 Quyosh: {times.get('quyosh', '')}\n"
+                f"☀️ Peshin: {times.get('peshin', '')}\n"
+                f"🌇 Asr: {times.get('asr', '')}\n"
+                f"🌆 Shom (Iftor): {times.get('shom_iftor', '')}\n"
+                f"🌃 Xufton: {times.get('hufton', '')}\n\n"
+                f"*(Manba: O'zbekiston Musulmonlari Idorasi - islom.uz)*"
             )
             await message.answer(text, parse_mode="Markdown")
         else:
