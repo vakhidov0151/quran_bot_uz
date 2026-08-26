@@ -57,7 +57,6 @@ async def get_user_script(user_id: int) -> str:
         pass
     return 'latin'
 
-# Barcha matnlarni xatosiz lotinga tarjima qiluvchi aqlli funksiya
 def translate_dict(d: dict, script: str):
     if script == 'cyrillic': return d
     for k, v in d.items():
@@ -65,23 +64,40 @@ def translate_dict(d: dict, script: str):
             d[k] = cyrillic_to_latin(v)
     return d
 
+# ==========================================
+# 🛠 Sura jadvalini o'zi topib oluvchi aqlli radar
+# ==========================================
+async def get_sura_table_name(db):
+    async with db.execute("SELECT name FROM sqlite_master WHERE type='table'") as cursor:
+        tables = await cursor.fetchall()
+        for t in tables:
+            if 'sura' in t[0].lower():
+                return t[0]
+    return 'surahs' # Yoki standart
+
 async def get_all_surahs(script='latin'):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute("SELECT * FROM surahs") as cursor:
+        table_name = await get_sura_table_name(db)
+        
+        async with db.execute(f"SELECT * FROM {table_name}") as cursor:
             rows = await cursor.fetchall()
             return [translate_dict(dict(row), script) for row in rows]
 
 async def get_surah_info(surah_id: int, script='latin'):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
+        table_name = await get_sura_table_name(db)
+        
         try:
-            cursor = await db.execute("SELECT * FROM surahs WHERE surah_id = ?", (surah_id,))
+            cursor = await db.execute(f"SELECT * FROM {table_name} WHERE surah_id = ?", (surah_id,))
         except:
-            cursor = await db.execute("SELECT * FROM surahs WHERE id = ?", (surah_id,))
+            cursor = await db.execute(f"SELECT * FROM {table_name} WHERE id = ?", (surah_id,))
+            
         row = await cursor.fetchone()
         return translate_dict(dict(row), script) if row else None
 
+# Verses qismi qolgan barcha joyda ishlayapti, demak jadval nomi aniq `verses`
 async def get_verse(surah_id: int, verse_id: int, script='latin'):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
