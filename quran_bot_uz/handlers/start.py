@@ -10,9 +10,6 @@ from config import DB_PATH
 
 router = Router()
 
-# ==========================================
-# YANGI: Kordinatadan eng yaqin shaharni aniqlash formulasi
-# ==========================================
 def get_nearest_region(lat, lon):
     regions = {
         "Toshkent": (41.3110, 69.2405),
@@ -68,7 +65,7 @@ async def handle_location(message: Message):
         await message.answer(f"Lokatsiyani saqlashda xatolik yuz berdi: {e}")
 
 # ==========================================
-# YANGILANISH: Islom.uz API'siga ulanish
+# YANGILANISH: Aqlli zaxira (Fallback) tizimi
 # ==========================================
 @router.message(F.text == "🕌 Namoz vaqtlari")
 async def prayer_times_handler(message: Message):
@@ -82,38 +79,60 @@ async def prayer_times_handler(message: Message):
 
         lat = location['latitude']
         lon = location['longitude']
-        
-        # 1. Kordinatadan shaharni topamiz
         region = get_nearest_region(lat, lon)
         
-        # 2. Islom.uz dan vaqtlarni tortib olamiz
-        url = f"https://islomapi.uz/api/present/day?region={region}"
+        islom_url = f"https://islomapi.uz/api/present/day?region={region}"
+        # Zaxira uchun Aladhan manzili (Hanafiya: school=1, Markaziy Osiyo: method=1)
+        aladhan_url = f"http://api.aladhan.com/v1/timings?latitude={lat}&longitude={lon}&method=1&school=1"
         
         async with aiohttp.ClientSession() as session:
-            async with session.get(url) as response:
-                data = await response.json()
-                
-        if 'times' in data:
-            times = data['times']
-            date = data.get('date', '')
-            weekday = data.get('weekday', '')
-            
-            text = (
-                f"🕌 **Namoz vaqtlari ({region})**\n"
-                f"🗓 Sana: {date}, {weekday}\n\n"
-                f"🌅 Bomdod: {times.get('tong_saharlik', '')}\n"
-                f"🌄 Quyosh: {times.get('quyosh', '')}\n"
-                f"☀️ Peshin: {times.get('peshin', '')}\n"
-                f"🌇 Asr: {times.get('asr', '')}\n"
-                f"🌆 Shom (Iftor): {times.get('shom_iftor', '')}\n"
-                f"🌃 Xufton: {times.get('hufton', '')}\n\n"
-                f"*(Manba: O'zbekiston Musulmonlari Idorasi - islom.uz)*"
-            )
-            await message.answer(text, parse_mode="Markdown")
-        else:
-            await message.answer("Vaqtlarni olishda xatolik yuz berdi.")
+            # 1-URINISH: Islom.uz saytidan olishga harakat qilamiz
+            try:
+                async with session.get(islom_url, timeout=5) as response:
+                    # Agar server 200 (Yaxshi) degan javob qilsa, islom.uz dan olamiz
+                    if response.status == 200:
+                        data = await response.json(content_type=None)
+                        if 'times' in data:
+                            times = data['times']
+                            text = (
+                                f"🕌 **Namoz vaqtlari ({region})**\n"
+                                f"🗓 Sana: {data.get('date', '')}\n\n"
+                                f"🌅 Bomdod: {times.get('tong_saharlik', '')}\n"
+                                f"🌄 Quyosh: {times.get('quyosh', '')}\n"
+                                f"☀️ Peshin: {times.get('peshin', '')}\n"
+                                f"🌇 Asr: {times.get('asr', '')}\n"
+                                f"🌆 Shom (Iftor): {times.get('shom_iftor', '')}\n"
+                                f"🌃 Xufton: {times.get('hufton', '')}\n\n"
+                                f"*(Manba: O'zbekiston Musulmonlari Idorasi)*"
+                            )
+                            await message.answer(text, parse_mode="Markdown")
+                            return # Ish bajarildi, shu yerda to'xtatamiz
+            except Exception:
+                pass # Agar Islom.uz dan xato kelsa, indamay keyingi qadamga o'tamiz
+
+            # 2-URINISH: Agar Islom.uz o'chiq bo'lsa, avtomat Aladhanni ishga tushiramiz
+            async with session.get(aladhan_url) as response:
+                data = await response.json(content_type=None)
+                if data['code'] == 200:
+                    timings = data['data']['timings']
+                    date = data['data']['date']['readable']
+                    text = (
+                        f"🕌 **Namoz vaqtlari (Zaxira)**\n"
+                        f"🗓 Sana: {date}\n\n"
+                        f"🌅 Bomdod: {timings['Fajr']}\n"
+                        f"🌄 Quyosh: {timings['Sunrise']}\n"
+                        f"☀️ Peshin: {timings['Dhuhr']}\n"
+                        f"🌇 Asr: {timings['Asr']}\n"
+                        f"🌆 Shom: {timings['Maghrib']}\n"
+                        f"🌃 Xufton: {timings['Isha']}\n\n"
+                        f"*(Eslatma: islom.uz serverida vaqtinchalik uzilish bo'lgani uchun vaqtlar xalqaro tizimdan olindi)*"
+                    )
+                    await message.answer(text, parse_mode="Markdown")
+                else:
+                    await message.answer("Ikkala serverdan ham vaqtlarni olishda xatolik yuz berdi.")
+                    
     except Exception as e:
-        await message.answer(f"Tizimda xatolik yuz berdi: {e}")
+        await message.answer(f"Tizimda kutilmagan xatolik: {e}")
 
 @router.message(F.text == "✨ Kun oyati")
 async def daily_verse_handler(message: Message):
