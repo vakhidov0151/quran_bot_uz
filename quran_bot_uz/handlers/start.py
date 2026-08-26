@@ -1,66 +1,62 @@
 import aiohttp
+import aiosqlite
 from aiogram import Router, F
 from aiogram.filters import CommandStart
 from aiogram.types import Message
 from keyboards.reply import get_main_keyboard
 from database.db_manager import save_user_location, get_user_location
+from config import DB_PATH
 
 router = Router()
 
+# 1. /start buyrug'i bosilganda
 @router.message(CommandStart())
 async def cmd_start(message: Message):
     welcome_text = (
         f"Assalomu alaykum, {message.from_user.full_name}!\n\n"
         "📖 **Qur'oni Karim botiga xush kelibsiz.**\n\n"
-        "Quyidagi menyudan kerakli bo'limni tanlang yoki qidirmoqchi bo'lgan sura va oyat raqamini yuboring.\n"
-        "Misol uchun: `2:255` yoki `114:1`"
+        "Pastdagi menyudan kerakli bo'limni tanlang:"
     )
     await message.answer(welcome_text, reply_markup=get_main_keyboard(), parse_mode="Markdown")
 
+# 2. Lokatsiya yuborilganda
 @router.message(F.location)
 async def handle_location(message: Message):
-    lat = message.location.latitude
-    lon = message.location.longitude
-    user_id = message.from_user.id
-    
-    await save_user_location(user_id, lat, lon)
-    
-    text = (
-        "✅ Joylashuvingiz muvaffaqiyatli saqlandi!\n\n"
-        "Endi «🕌 Namoz vaqtlari» tugmasini bossangiz, aynan siz turgan hudud vaqti ko'rsatiladi.\n"
-        "Boshqa shaharga borsangiz, shu tugmani yana bir marta bosib qo'yish kifoya."
-    )
-    await message.answer(text, reply_markup=get_main_keyboard())
+    try:
+        lat = message.location.latitude
+        lon = message.location.longitude
+        user_id = message.from_user.id
+        
+        await save_user_location(user_id, lat, lon)
+        
+        text = (
+            "✅ Joylashuvingiz muvaffaqiyatli saqlandi!\n\n"
+            "Endi «🕌 Namoz vaqtlari» tugmasini bossangiz, aynan siz turgan hudud vaqti ko'rsatiladi."
+        )
+        await message.answer(text, reply_markup=get_main_keyboard())
+    except Exception as e:
+        await message.answer(f"Lokatsiyani saqlashda xatolik yuz berdi: {e}")
 
-# ==========================================
-# YANGI: Namoz vaqtlarini ko'rsatuvchi qism
-# ==========================================
+# 3. Namoz vaqtlari bosilganda (Aladhan API)
 @router.message(F.text == "🕌 Namoz vaqtlari")
 async def prayer_times_handler(message: Message):
-    user_id = message.from_user.id
-    
-    # 1. Bazadan foydalanuvchi qayerda turganini (manzilini) qidiramiz
-    location = await get_user_location(user_id)
-    
-    # Agar manzil yo'q bo'lsa, yuborishni so'raymiz
-    if not location:
-        await message.answer("Siz hali joylashuvingizni yubormagansiz. Iltimos, pastdagi «📍 Joylashuvni jo'natish» tugmasini bosing.")
-        return
-
-    # Kordinatalarni ajratib olamiz
-    lat = location['latitude']
-    lon = location['longitude']
-    
-    # 2. Aladhan API tizimidan vaqtlarni so'raymiz
-    url = f"http://api.aladhan.com/v1/timings?latitude={lat}&longitude={lon}&method=3"
-    
     try:
-        # Internatdan ma'lumotni yuklab olamiz
+        user_id = message.from_user.id
+        location = await get_user_location(user_id)
+        
+        if not location:
+            await message.answer("Siz hali joylashuvingizni yubormagansiz. Iltimos, pastdagi «📍 Joylashuvni jo'natish» tugmasini bosing.")
+            return
+
+        lat = location['latitude']
+        lon = location['longitude']
+        
+        url = f"http://api.aladhan.com/v1/timings?latitude={lat}&longitude={lon}&method=3"
+        
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as response:
                 data = await response.json()
                 
-        # Agar javob to'g'ri kelsa (200), vaqtlarni ajratib xabar yasaymiz
         if data['code'] == 200:
             timings = data['data']['timings']
             date = data['data']['date']['readable']
@@ -77,8 +73,37 @@ async def prayer_times_handler(message: Message):
             )
             await message.answer(text, parse_mode="Markdown")
         else:
-            await message.answer("Kechirasiz, vaqtlarni olishda xatolik yuz berdi. Keyinroq urinib ko'ring.")
-            
+            await message.answer("Vaqtlarni olishda xatolik yuz berdi.")
     except Exception as e:
-        await message.answer("Internetga ulanishda xatolik yuz berdi. Iltimos, qayta urinib ko'ring.")
-        print(f"API xatosi: {e}")
+        await message.answer(f"Tizimda xatolik yuz berdi: {e}")
+
+# 4. Kun oyati bosilganda
+@router.message(F.text == "✨ Kun oyati")
+async def daily_verse_handler(message: Message):
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute("SELECT * FROM verses ORDER BY RANDOM() LIMIT 1") as cursor:
+                verse = await cursor.fetchone()
+        
+        if verse:
+            text = (
+                f"✨ **Kun oyati** ✨\n\n"
+                f"📖 **{verse['surah_name_uz']} surasi, {verse['verse_id']}-oyat**\n\n"
+                f"📝 {verse['text_arabic']}\n\n"
+                f"🇺🇿 {verse['text_uzbek']}"
+            )
+            await message.answer(text, parse_mode="Markdown")
+        else:
+            await message.answer("Hozircha bazada oyatlar topilmadi.")
+    except Exception as e:
+        await message.answer(f"Oyatni yuklashda xatolik yuz berdi: {e}")
+
+# 5. Qur'on o'qish tugmasi bosilganda
+@router.message(F.text == "📖 Qur'on o'qish va tinglash")
+async def quran_read_handler(message: Message):
+    await message.answer(
+        "Qur'on o'qish uchun sura va oyat raqamini yuboring.\n"
+        "Misol uchun: `2:255` yoki `114:1`", 
+        parse_mode="Markdown"
+    )
