@@ -17,36 +17,32 @@ from config import DB_PATH
 router = Router()
 
 # ==========================================
-# 🛠 BAZANI QIDIRUVCHI RADAR (ENG TEPADA!)
+# 🛠 1. BAZA ICHINI KO'RSATUVCHI RENTGEN KODI (ENG TEPADA!)
 # ==========================================
 @router.message(Command("testdb"))
 async def test_db_handler(message: Message):
-    import os
-    text = "🔍 **Serverdagi bazalar qidirilmoqda...**\n\n"
-    topildi = False
-    
-    # Asosiy papkani tekshirish
-    text += "📁 **Asosiy papkada:**\n"
-    for f in os.listdir('.'):
-        if f.endswith('.db') or f.endswith('.sqlite') or 'quran' in f.lower():
-            size = os.path.getsize(f) / (1024 * 1024)
-            text += f"📄 `{f}` ({size:.2f} MB)\n"
-            topildi = True
-            
-    # Data papkasini tekshirish
-    if os.path.exists('data'):
-        text += "\n📁 **'data' papkasida:**\n"
-        for f in os.listdir('data'):
-            if f.endswith('.db') or f.endswith('.sqlite') or 'quran' in f.lower():
-                size = os.path.getsize(f'data/{f}') / (1024 * 1024)
-                text += f"📄 `data/{f}` ({size:.2f} MB)\n"
-                topildi = True
+    import aiosqlite
+    from config import DB_PATH
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            async with db.execute("SELECT name FROM sqlite_master WHERE type='table';") as cursor:
+                tables = await cursor.fetchall()
+                names = [t[0] for t in tables if t[0] != 'sqlite_sequence']
                 
-    if not topildi:
-        text += "❌ Hech qanday baza topilmadi!"
-        
-    await message.answer(text)
+                text = f"✅ BAZA ULANDI: {DB_PATH}\n\nJadvallar ({len(names)} ta):\n\n"
+                for name in names:
+                    async with db.execute(f"PRAGMA table_info('{name}')") as c:
+                        cols = await c.fetchall()
+                        col_names = [col[1] for col in cols]
+                        text += f"📁 **{name}**\nUstunlari: {', '.join(col_names)}\n\n"
+                        
+                await message.answer(text[:4000])
+    except Exception as e:
+        await message.answer(f"❌ Xato: {e}")
 
+# ==========================================
+# 2. ASOSIY FUNKSIYALAR
+# ==========================================
 def get_nearest_region(lat, lon):
     regions = {
         "Toshkent": (41.3110, 69.2405), "Andijon": (40.7820, 72.3442), "Buxoro": (39.7747, 64.4286),
