@@ -111,7 +111,6 @@ async def get_verse_by_sura_name(keyword: str, verse_id: int, script='latin'):
         db.row_factory = aiosqlite.Row
         search_word1 = f"%{latin_to_cyrillic(keyword)}%"
         search_word2 = f"%{keyword}%"
-        # Ikkala yozuvda ham izlaymiz (name_uz yoki surah_name_uz)
         query = """
             SELECT * FROM verses 
             WHERE (surah_name_uz LIKE ? OR surah_name_uz LIKE ? OR name_uz LIKE ? OR name_uz LIKE ?) 
@@ -174,6 +173,26 @@ async def get_random_verse(script='latin'):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         now = datetime.datetime.now(ZoneInfo("Asia/Tashkent"))
+        
+        if now.weekday() == 4:
+            # Juma kuni uchun Maxsus: Juma surasi, 9-10 oyatlar
+            async with db.execute("SELECT * FROM verses WHERE surah_id = 62 AND verse_id IN (9, 10) ORDER BY verse_id") as cursor:
+                rows = await cursor.fetchall()
+                if rows and len(rows) == 2:
+                    row1 = dict(rows[0])
+                    row2 = dict(rows[1])
+                    
+                    combined = row1.copy()
+                    combined['verse_id'] = "9-10"
+                    
+                    ar_col = 'text_arabic' if 'text_arabic' in row1 else 'arabic'
+                    uz_col = 'text_uzbek' if 'text_uzbek' in row1 else 'uzbek' if 'uzbek' in row1 else 'text'
+                    
+                    combined[ar_col] = row1.get(ar_col, '') + " ۝ " + row2.get(ar_col, '')
+                    combined[uz_col] = row1.get(uz_col, '') + " " + row2.get(uz_col, '')
+                    
+                    return translate_dict(combined, script)
+                    
         day_index = now.toordinal() % len(CUSTOM_VERSES)
         sura_id, ayah_id = CUSTOM_VERSES[day_index]
         async with db.execute("SELECT * FROM verses WHERE surah_id = ? AND verse_id = ?", (sura_id, ayah_id)) as cursor:
@@ -184,7 +203,6 @@ async def get_all_asmaulhusna(script='latin'):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("CREATE TABLE IF NOT EXISTS asma (id INTEGER PRIMARY KEY, arabic TEXT, latin TEXT, uzbek TEXT)")
         
-        # Cursor'ni yopib keyin drop qilish uchun
         count = 0
         async with db.execute("SELECT COUNT(*) FROM asma") as cursor:
             count = (await cursor.fetchone())[0]
@@ -295,7 +313,6 @@ async def get_all_asmaulhusna(script='latin'):
                 ]
             await db.executemany("INSERT INTO asma (id, arabic, latin, uzbek) VALUES (?, ?, ?, ?)", asma_data)
             await db.commit()
-            
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT * FROM asma ORDER BY id") as cursor:
             rows = await cursor.fetchall()
