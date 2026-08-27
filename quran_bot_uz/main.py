@@ -12,17 +12,12 @@ from handlers import start
 
 logging.basicConfig(level=logging.INFO)
 
-# TOSHKEN VAQTINI QAT'IY BELGILASH
 TASHKENT_TZ = ZoneInfo("Asia/Tashkent")
 
-# API'ni har daqiqada qiynamaslik uchun xotira
-prayer_time_cache = {}
+location_cache = {}
+user_sent_cache = {}
 
 async def check_and_send_prayer_notifications(bot: Bot):
-    now = datetime.datetime.now(TASHKENT_TZ)
-    current_time = now.strftime("%H:%M")
-    current_date = now.strftime("%d-%m-%Y")
-
     try:
         async with aiosqlite.connect(DB_PATH) as db:
             db.row_factory = aiosqlite.Row
@@ -39,34 +34,47 @@ async def check_and_send_prayer_notifications(bot: Bot):
                 lon = user['longitude']
                 script = user['script']
 
-                user_cache = prayer_time_cache.get(user_id)
-                if not user_cache or user_cache.get('date') != current_date:
+                loc_key = f"{round(lat, 2)}_{round(lon, 2)}"
+
+                utc_now = datetime.datetime.now(datetime.timezone.utc)
+                cache_date_str = utc_now.strftime("%d-%m-%Y")
+
+                if loc_key not in location_cache or location_cache[loc_key].get('date') != cache_date_str:
                     url = f"http://api.aladhan.com/v1/timings?latitude={lat}&longitude={lon}&method=99&methodSettings=18,null,15&school=1"
                     try:
                         async with session.get(url, timeout=5) as response:
                             if response.status == 200:
                                 data = await response.json()
                                 raw_timings = data['data']['timings']
-                                # "(UZT)" yozuvlarini olib tashlab, toza soatni qoldiramiz
+                                loc_tz = data['data']['meta']['timezone'] 
                                 timings = {k: v.split(" ")[0][:5] for k, v in raw_timings.items()}
                                 
-                                # ⚙️ ISLOM.UZ UCHUN MAXSUS: Shom (Maghrib) ga aniq +5 daqiqa qo'shamiz
                                 m_time = datetime.datetime.strptime(timings['Maghrib'], "%H:%M")
                                 m_time += datetime.timedelta(minutes=5)
                                 timings['Maghrib'] = m_time.strftime("%H:%M")
 
-                                prayer_time_cache[user_id] = {
-                                    "date": current_date,
+                                location_cache[loc_key] = {
+                                    "date": cache_date_str,
                                     "timings": timings,
-                                    "sent": [] 
+                                    "timezone": loc_tz
                                 }
-                                user_cache = prayer_time_cache[user_id]
                     except Exception:
                         continue 
 
-                if user_cache and user_cache.get('date') == current_date:
-                    timings = user_cache['timings']
-                    sent_list = user_cache['sent']
+                if user_id not in user_sent_cache or user_sent_cache[user_id].get('date') != cache_date_str:
+                    user_sent_cache[user_id] = {"date": cache_date_str, "sent": []}
+
+                loc_data = location_cache.get(loc_key)
+                if loc_data and loc_data.get('date') == cache_date_str:
+                    timings = loc_data['timings']
+                    loc_tz_name = loc_data['timezone']
+                    sent_list = user_sent_cache[user_id]['sent']
+
+                    try:
+                        user_now = datetime.datetime.now(ZoneInfo(loc_tz_name))
+                        user_current_time = user_now.strftime("%H:%M")
+                    except Exception:
+                        continue
 
                     prayer_names = {
                         "Fajr": ("Bomdod", "Бомдод"),
@@ -79,14 +87,14 @@ async def check_and_send_prayer_notifications(bot: Bot):
                     for p_key, p_names in prayer_names.items():
                         p_time = timings.get(p_key)
                         
-                        if p_time == current_time and p_key not in sent_list:
+                        if p_time == user_current_time and p_key not in sent_list:
                             p_name = p_names[0] if script == 'latin' else p_names[1]
                             msg = f"🕌 **{p_name} vaqti kirdi!**\n\n_(Alloh ibodatlaringizni qabul qilsin!)_" if script == 'latin' else f"🕌 **{p_name} вақти кирди!**\n\n_(Аллоҳ ибодатларингизни қабул қилсин!)_"
                             
                             try:
                                 await bot.send_message(user_id, msg, parse_mode="Markdown")
-                                prayer_time_cache[user_id]["sent"].append(p_key)
-                                await asyncio.sleep(0.3) 
+                                user_sent_cache[user_id]["sent"].append(p_key)
+                                await asyncio.sleep(0.1) 
                             except Exception:
                                 pass
 
