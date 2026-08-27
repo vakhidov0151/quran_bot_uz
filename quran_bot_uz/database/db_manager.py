@@ -1,4 +1,6 @@
 import aiosqlite
+import datetime
+from zoneinfo import ZoneInfo
 from config import DB_PATH
 
 def cyrillic_to_latin(text: str) -> str:
@@ -64,13 +66,9 @@ def translate_dict(d: dict, script: str):
             d[k] = cyrillic_to_latin(v)
     return d
 
-# ==========================================
-# 🛠 YECHIM: Suralar ro'yxatini VERSES jadvalidan guruhlab olamiz!
-# ==========================================
 async def get_all_surahs(script='latin'):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        # DISTINCT orqali takrorlanmas sura nomlarini Oyatlar jadvalidan sug'urib olamiz
         query = "SELECT DISTINCT surah_id, surah_name_uz, surah_name_ar FROM verses ORDER BY surah_id"
         async with db.execute(query) as cursor:
             rows = await cursor.fetchall()
@@ -79,7 +77,6 @@ async def get_all_surahs(script='latin'):
 async def get_surah_info(surah_id: int, script='latin'):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        # Sura haqidagi ma'lumotni va jami oyatlar sonini (total_verses) o'zi sanab beradi
         query = """
             SELECT surah_id, surah_name_uz, surah_name_ar, COUNT(verse_id) as total_verses 
             FROM verses 
@@ -90,7 +87,6 @@ async def get_surah_info(surah_id: int, script='latin'):
             row = await cursor.fetchone()
             return translate_dict(dict(row), script) if row else None
 
-# Oyatni olish qismi
 async def get_verse(surah_id: int, verse_id: int, script='latin'):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
@@ -138,9 +134,33 @@ async def search_verses_by_text(keyword: str, script='latin'):
             rows = await cursor.fetchall()
             return [translate_dict(dict(row), script) for row in rows]
 
+# ==========================================
+# ✨ KUN OYATI UCHUN MAXSUS RO'YXAT (Siz tanlagan oyatlar)
+# ==========================================
+CUSTOM_VERSES = [
+    (1, 1), (1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7), # Fotiha (1)
+    (2, 104), (2, 138), (2, 153), (2, 172), (2, 183), (2, 208), (2, 254), (2, 255), (2, 264), (2, 267), (2, 278), (2, 282), # Baqara (2)
+    (3, 2), (3, 5), (3, 6), (3, 7), (3, 8), (3, 9), (3, 100), (3, 102), (3, 118), (3, 130), (3, 149), (3, 200), # Oli Imron (3)
+    (4, 29), (4, 59), (4, 133), (4, 135), (4, 136), (4, 144), # Niso (4)
+    (5, 1), # Moida (5)
+    (24, 31), # Nur (24)
+    (55, 19), (55, 27), (55, 29), (55, 33), (55, 37), (55, 46), (55, 60) # Ar-Rohman (55)
+]
+
 async def get_random_verse(script='latin'):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute("SELECT * FROM verses ORDER BY RANDOM() LIMIT 1") as cursor:
+        
+        # Toshkent vaqti bilan sanani olamiz. (Bot qayerda ishlashidan qat'iy nazar, 
+        # faqat O'zbekiston tunda soat 00:00 bo'lgandagina kun oyati o'zgaradi).
+        now = datetime.datetime.now(ZoneInfo("Asia/Tashkent"))
+        
+        # Bugungi kun tartib raqamini (yilning sanasini) jami oyatlar soniga bo'lamiz
+        # Natijada 1 kun uchun 1 ta o'zgarmas indeks hosil bo'ladi.
+        day_index = now.toordinal() % len(CUSTOM_VERSES)
+        
+        sura_id, ayah_id = CUSTOM_VERSES[day_index]
+        
+        async with db.execute("SELECT * FROM verses WHERE surah_id = ? AND verse_id = ?", (sura_id, ayah_id)) as cursor:
             row = await cursor.fetchone()
             return translate_dict(dict(row), script) if row else None
