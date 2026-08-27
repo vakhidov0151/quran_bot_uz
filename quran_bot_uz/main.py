@@ -12,21 +12,25 @@ from handlers import start
 
 logging.basicConfig(level=logging.INFO)
 
-# 1. TOSHKEN VAQTINI QAT'IY BELGILASH
+# TOSHKEN VAQTINI QAT'IY BELGILASH
 TASHKENT_TZ = ZoneInfo("Asia/Tashkent")
 
-async def send_prayer_notifications(bot: Bot):
+# API'ni har daqiqada qiynamaslik uchun foydalanuvchilarning bugungi vaqtlarini saqlovchi XOTIRA
+prayer_time_cache = {}
+
+async def check_and_send_prayer_notifications(bot: Bot):
+    now = datetime.datetime.now(TASHKENT_TZ)
+    current_time = now.strftime("%H:%M")
+    current_date = now.strftime("%d-%m-%Y")
+
     try:
         async with aiosqlite.connect(DB_PATH) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute("SELECT user_id, latitude, longitude, script FROM users WHERE latitude IS NOT NULL") as cursor:
                 users = await cursor.fetchall()
-                
+
         if not users:
             return
-
-        # Vaqtni ham Toshkent bo'yicha olamiz
-        today_date = datetime.datetime.now(TASHKENT_TZ).strftime("%d-%m-%Y")
 
         async with aiohttp.ClientSession() as session:
             for user in users:
@@ -34,44 +38,59 @@ async def send_prayer_notifications(bot: Bot):
                 lat = user['latitude']
                 lon = user['longitude']
                 script = user['script']
-                
-                url = f"http://api.aladhan.com/v1/timings?latitude={lat}&longitude={lon}&method=1&school=1"
-                try:
-                    async with session.get(url, timeout=10) as response:
-                        if response.status == 200:
-                            data = await response.json()
-                            timings = data['data']['timings']
+
+                # 1. XOTIRANI TEKSHIRISH: Agar bugungi vaqtlar xotirada yo'q bo'lsa, API'dan bir marta olib saqlaymiz
+                user_cache = prayer_time_cache.get(user_id)
+                if not user_cache or user_cache.get('date') != current_date:
+                    url = f"http://api.aladhan.com/v1/timings?latitude={lat}&longitude={lon}&method=1&school=1"
+                    try:
+                        async with session.get(url, timeout=5) as response:
+                            if response.status == 200:
+                                data = await response.json()
+                                raw_timings = data['data']['timings']
+                                # "04:30 (UZT)" formatini toza "04:30" qilib olamiz
+                                timings = {k: v.split(" ")[0][:5] for k, v in raw_timings.items()}
+                                prayer_time_cache[user_id] = {
+                                    "date": current_date,
+                                    "timings": timings,
+                                    "sent": [] # Yuborilgan xabarlarni belgilash uchun ro'yxat
+                                }
+                                user_cache = prayer_time_cache[user_id]
+                    except Exception:
+                        continue # Tarmoq uzilsa, xato bermasdan keyingi daqiqada yana urinadi
+
+                # 2. VAQTNI SOLISHTIRISH: Agar hozirgi vaqt namoz vaqtiga teng bo'lsa va hali yuborilmagan bo'lsa -> jo'natamiz
+                if user_cache and user_cache.get('date') == current_date:
+                    timings = user_cache['timings']
+                    sent_list = user_cache['sent']
+
+                    # Qaysi namoz qanday nomlanishi
+                    prayer_names = {
+                        "Fajr": ("Bomdod", "Бомдод"),
+                        "Dhuhr": ("Peshin", "Пешин"),
+                        "Asr": ("Asr", "Аср"),
+                        "Maghrib": ("Shom", "Шом"),
+                        "Isha": ("Xufton", "Хуфтон")
+                    }
+
+                    for p_key, p_names in prayer_names.items():
+                        p_time = timings.get(p_key)
+                        
+                        # Soat va daqiqa to'g'ri kelsa
+                        if p_time == current_time and p_key not in sent_list:
+                            p_name = p_names[0] if script == 'latin' else p_names[1]
+                            msg = f"🕌 **{p_name} vaqti kirdi!**\n\n_(Alloh ibodatlaringizni qabul qilsin!)_" if script == 'latin' else f"🕌 **{p_name} вақти кирди!**\n\n_(Аллоҳ ибодатларингизни қабул қилсин!)_"
                             
-                            if script == 'latin':
-                                text = (
-                                    f"🌅 **Kunlik namoz vaqtlari eslatmasi**\n"
-                                    f"🗓 Sana: {today_date}\n\n"
-                                    f"🌅 Bomdod: {timings['Fajr']}\n"
-                                    f"🌄 Quyosh: {timings['Sunrise']}\n"
-                                    f"☀️ Peshin: {timings['Dhuhr']}\n"
-                                    f"🌇 Asr: {timings['Asr']}\n"
-                                    f"🌆 Shom: {timings['Maghrib']}\n"
-                                    f"🌃 Xufton: {timings['Isha']}\n\n"
-                                    f"*(Alloh ibodatlaringizni qabul qilsin!)*"
-                                )
-                            else:
-                                text = (
-                                    f"🌅 **Кунлик намоз вақтлари эслатмаси**\n"
-                                    f"🗓 Сана: {today_date}\n\n"
-                                    f"🌅 Бомдод: {timings['Fajr']}\n"
-                                    f"🌄 Қуёш: {timings['Sunrise']}\n"
-                                    f"☀️ Пешин: {timings['Dhuhr']}\n"
-                                    f"🌇 Аср: {timings['Asr']}\n"
-                                    f"🌆 Шом: {timings['Maghrib']}\n"
-                                    f"🌃 Хуфтон: {timings['Isha']}\n\n"
-                                    f"*(Аллоҳ ибодатларингизни қабул қилсин!)*"
-                                )
-                            await bot.send_message(user_id, text, parse_mode="Markdown")
-                            await asyncio.sleep(0.5) # Telegram bloklamasligi uchun pauza
-                except Exception as e:
-                    print(f"Xato (Foydalanuvchi {user_id}): {e}")
+                            try:
+                                await bot.send_message(user_id, msg, parse_mode="Markdown")
+                                # Xabar yuborilgach, uni xotiraga "yuborildi" deb belgilaymiz (qayta-qayta bormasligi uchun)
+                                prayer_time_cache[user_id]["sent"].append(p_key)
+                                await asyncio.sleep(0.3) # Telegram botni spamga chiqarmasligi uchun xavfsiz pauza
+                            except Exception:
+                                pass
+
     except Exception as e:
-        print(f"Bildirishnoma yuborishda xatolik: {e}")
+        print(f"Xatolik (Checker): {e}")
 
 async def main():
     bot = Bot(token=BOT_TOKEN)
@@ -93,11 +112,11 @@ async def main():
         """)
         await db.commit()
 
-    # 2. SCHEDULER'NI TOSHKENT VAQTIGA QULFLASH
+    # SCHEDULER'NI TOSHKENT VAQTIGA QULFLASH VA HAR DAQIQADA ISHLATISH
     scheduler = AsyncIOScheduler(timezone=TASHKENT_TZ)
     
-    # Har kuni ertalab soat 05:00 da hammaga kunlik ro'yxatni yuboradi
-    scheduler.add_job(send_prayer_notifications, "cron", hour=5, minute=0, args=(bot,))
+    # Bot har 1 daqiqada soatni tekshiradi, agar vaqt kirgan bo'lsa xabar yuboradi
+    scheduler.add_job(check_and_send_prayer_notifications, "cron", minute="*")
     scheduler.start()
 
     print("🚀 Bot muvaffaqiyatli ishga tushdi!")
