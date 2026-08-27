@@ -7,7 +7,7 @@ from aiogram import Router, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from keyboards.reply import get_main_keyboard
-from keyboards.inline import get_surahs_keyboard, get_verses_keyboard
+from keyboards.inline import get_surahs_keyboard, get_verses_keyboard, get_asma_keyboard
 from database.db_manager import (
     save_user_location, get_user_location, get_all_surahs, 
     get_surah_info, get_verse, get_all_duas, get_dua_by_id, search_verses_by_text,
@@ -420,16 +420,20 @@ async def asma_menu_handler(message: Message):
     script = await get_user_script(message.from_user.id)
     asma_list = await get_all_asmaulhusna(script)
     
-    from aiogram.utils.keyboard import InlineKeyboardBuilder
-    builder = InlineKeyboardBuilder()
-    
-    for asma in asma_list:
-        builder.add(InlineKeyboardButton(text=f"{asma['id']}. {asma['latin']}", callback_data=f"asma:{asma['id']}"))
-        
-    builder.adjust(2) 
-    
     msg_text = "✨ **Allohning 99 go'zal ismi (Asmo ul-Husna)**\n\nMarhamat, ismlardan birini tanlang:" if script == 'latin' else "✨ **Аллоҳнинг 99 гўзал исми (Асмо ул-Ҳусна)**\n\nМарҳамат, исмлардан бирини танланг:"
-    await message.answer(msg_text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+    await message.answer(msg_text, reply_markup=get_asma_keyboard(asma_list, page=1, script=script), parse_mode="Markdown")
+
+@router.callback_query(F.data.startswith("apage:"))
+async def asma_page_callback(call: CallbackQuery):
+    script = await get_user_script(call.from_user.id)
+    asma_list = await get_all_asmaulhusna(script)
+    page = int(call.data.split(":")[1])
+    
+    try:
+        await call.message.edit_reply_markup(reply_markup=get_asma_keyboard(asma_list, page=page, script=script))
+    except Exception:
+        pass
+    await call.answer()
 
 @router.callback_query(F.data.startswith("asma:"))
 async def asma_detail_callback(call: CallbackQuery):
@@ -440,26 +444,24 @@ async def asma_detail_callback(call: CallbackQuery):
     if asma:
         text = f"✨ **{asma['id']}. {asma['latin']}**\n\n📝 {asma['arabic']}\n\n🇺🇿 **Ma'nosi:** {asma['uzbek']}" if script == 'latin' else f"✨ **{asma['id']}. {asma['latin']}**\n\n📝 {asma['arabic']}\n\n🇺🇿 **Маъноси:** {asma['uzbek']}"
         
+        # Calculate which page this name belongs to so we can return to it
+        page = ((asma_id - 1) // 30) + 1
+        
         btn_back = "🔙 Orqaga" if script == 'latin' else "🔙 Орқага"
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=btn_back, callback_data="back_to_asma")]])
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=btn_back, callback_data=f"back_to_asma:{page}")]])
         await call.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
     await call.answer()
 
-@router.callback_query(F.data == "back_to_asma")
+@router.callback_query(F.data.startswith("back_to_asma"))
 async def back_to_asma_callback(call: CallbackQuery):
     script = await get_user_script(call.from_user.id)
     asma_list = await get_all_asmaulhusna(script)
     
-    from aiogram.utils.keyboard import InlineKeyboardBuilder
-    builder = InlineKeyboardBuilder()
-    
-    for asma in asma_list:
-        builder.add(InlineKeyboardButton(text=f"{asma['id']}. {asma['latin']}", callback_data=f"asma:{asma['id']}"))
-        
-    builder.adjust(2)
+    parts = call.data.split(":")
+    page = int(parts[1]) if len(parts) > 1 else 1
     
     msg_text = "✨ **Allohning 99 go'zal ismi (Asmo ul-Husna)**\n\nMarhamat, ismlardan birini tanlang:" if script == 'latin' else "✨ **Аллоҳнинг 99 гўзал исми (Асмо ул-Ҳусна)**\n\nМарҳамат, исмлардан бирини танланг:"
-    await call.message.edit_text(msg_text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+    await call.message.edit_text(msg_text, reply_markup=get_asma_keyboard(asma_list, page=page, script=script), parse_mode="Markdown")
     await call.answer()
 
 @router.message(F.text.in_({"🧭 Qibla", "🧭 Қибла"}))
