@@ -39,7 +39,7 @@ async def check_and_send_prayer_notifications(bot: Bot):
                 lon = user['longitude']
                 script = user['script']
 
-                # 1. XOTIRANI TEKSHIRISH: Agar bugungi vaqtlar xotirada yo'q bo'lsa, API'dan bir marta olib saqlaymiz
+                # 1. XOTIRANI TEKSHIRISH
                 user_cache = prayer_time_cache.get(user_id)
                 if not user_cache or user_cache.get('date') != current_date:
                     url = f"http://api.aladhan.com/v1/timings?latitude={lat}&longitude={lon}&method=1&school=1"
@@ -48,23 +48,21 @@ async def check_and_send_prayer_notifications(bot: Bot):
                             if response.status == 200:
                                 data = await response.json()
                                 raw_timings = data['data']['timings']
-                                # "04:30 (UZT)" formatini toza "04:30" qilib olamiz
                                 timings = {k: v.split(" ")[0][:5] for k, v in raw_timings.items()}
                                 prayer_time_cache[user_id] = {
                                     "date": current_date,
                                     "timings": timings,
-                                    "sent": [] # Yuborilgan xabarlarni belgilash uchun ro'yxat
+                                    "sent": [] 
                                 }
                                 user_cache = prayer_time_cache[user_id]
                     except Exception:
-                        continue # Tarmoq uzilsa, xato bermasdan keyingi daqiqada yana urinadi
+                        continue 
 
-                # 2. VAQTNI SOLISHTIRISH: Agar hozirgi vaqt namoz vaqtiga teng bo'lsa va hali yuborilmagan bo'lsa -> jo'natamiz
+                # 2. VAQTNI SOLISHTIRISH
                 if user_cache and user_cache.get('date') == current_date:
                     timings = user_cache['timings']
                     sent_list = user_cache['sent']
 
-                    # Qaysi namoz qanday nomlanishi
                     prayer_names = {
                         "Fajr": ("Bomdod", "Бомдод"),
                         "Dhuhr": ("Peshin", "Пешин"),
@@ -76,16 +74,14 @@ async def check_and_send_prayer_notifications(bot: Bot):
                     for p_key, p_names in prayer_names.items():
                         p_time = timings.get(p_key)
                         
-                        # Soat va daqiqa to'g'ri kelsa
                         if p_time == current_time and p_key not in sent_list:
                             p_name = p_names[0] if script == 'latin' else p_names[1]
                             msg = f"🕌 **{p_name} vaqti kirdi!**\n\n_(Alloh ibodatlaringizni qabul qilsin!)_" if script == 'latin' else f"🕌 **{p_name} вақти кирди!**\n\n_(Аллоҳ ибодатларингизни қабул қилсин!)_"
                             
                             try:
                                 await bot.send_message(user_id, msg, parse_mode="Markdown")
-                                # Xabar yuborilgach, uni xotiraga "yuborildi" deb belgilaymiz (qayta-qayta bormasligi uchun)
                                 prayer_time_cache[user_id]["sent"].append(p_key)
-                                await asyncio.sleep(0.3) # Telegram botni spamga chiqarmasligi uchun xavfsiz pauza
+                                await asyncio.sleep(0.3) 
                             except Exception:
                                 pass
 
@@ -114,8 +110,6 @@ async def main():
 
     # SCHEDULER'NI TOSHKENT VAQTIGA QULFLASH VA HAR DAQIQADA ISHLATISH
     scheduler = AsyncIOScheduler(timezone=TASHKENT_TZ)
-    
-    # Bot har 1 daqiqada soatni tekshiradi, agar vaqt kirgan bo'lsa xabar yuboradi
     scheduler.add_job(check_and_send_prayer_notifications, "cron", minute="*")
     scheduler.start()
 
