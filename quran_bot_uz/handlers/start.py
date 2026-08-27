@@ -12,7 +12,7 @@ from database.db_manager import (
     save_user_location, get_user_location, get_all_surahs, 
     get_surah_info, get_verse, get_all_duas, get_dua_by_id, search_verses_by_text,
     set_user_script, get_user_script, get_random_verse, set_user_qari, get_user_qari,
-    get_verse_by_sura_name
+    get_verse_by_sura_name, get_all_asmaulhusna, get_asma_by_id
 )
 
 router = Router()
@@ -415,6 +415,53 @@ async def tasbih_callback(call: CallbackQuery):
     except Exception: pass
     await call.answer()
 
+@router.message(F.text.in_({"✨ Asmo ul-Husna", "✨ Асмо ул-Ҳусна"}))
+async def asma_menu_handler(message: Message):
+    script = await get_user_script(message.from_user.id)
+    asma_list = await get_all_asmaulhusna(script)
+    
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    builder = InlineKeyboardBuilder()
+    
+    for asma in asma_list:
+        builder.add(InlineKeyboardButton(text=f"{asma['id']}. {asma['latin']}", callback_data=f"asma:{asma['id']}"))
+        
+    builder.adjust(2) 
+    
+    msg_text = "✨ **Allohning 99 go'zal ismi (Asmo ul-Husna)**\n\nMarhamat, ismlardan birini tanlang:" if script == 'latin' else "✨ **Аллоҳнинг 99 гўзал исми (Асмо ул-Ҳусна)**\n\nМарҳамат, исмлардан бирини танланг:"
+    await message.answer(msg_text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+
+@router.callback_query(F.data.startswith("asma:"))
+async def asma_detail_callback(call: CallbackQuery):
+    script = await get_user_script(call.from_user.id)
+    asma_id = int(call.data.split(":")[1])
+    asma = await get_asma_by_id(asma_id, script)
+    
+    if asma:
+        text = f"✨ **{asma['id']}. {asma['latin']}**\n\n📝 {asma['arabic']}\n\n🇺🇿 **Ma'nosi:** {asma['uzbek']}" if script == 'latin' else f"✨ **{asma['id']}. {asma['latin']}**\n\n📝 {asma['arabic']}\n\n🇺🇿 **Маъноси:** {asma['uzbek']}"
+        
+        btn_back = "🔙 Orqaga" if script == 'latin' else "🔙 Орқага"
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=btn_back, callback_data="back_to_asma")]])
+        await call.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+    await call.answer()
+
+@router.callback_query(F.data == "back_to_asma")
+async def back_to_asma_callback(call: CallbackQuery):
+    script = await get_user_script(call.from_user.id)
+    asma_list = await get_all_asmaulhusna(script)
+    
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    builder = InlineKeyboardBuilder()
+    
+    for asma in asma_list:
+        builder.add(InlineKeyboardButton(text=f"{asma['id']}. {asma['latin']}", callback_data=f"asma:{asma['id']}"))
+        
+    builder.adjust(2)
+    
+    msg_text = "✨ **Allohning 99 go'zal ismi (Asmo ul-Husna)**\n\nMarhamat, ismlardan birini tanlang:" if script == 'latin' else "✨ **Аллоҳнинг 99 гўзал исми (Асмо ул-Ҳусна)**\n\nМарҳамат, исмлардан бирини танланг:"
+    await call.message.edit_text(msg_text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+    await call.answer()
+
 @router.message(F.text.in_({"🧭 Qibla", "🧭 Қибла"}))
 async def qibla_handler(message: Message):
     script = await get_user_script(message.from_user.id)
@@ -460,7 +507,7 @@ async def qibla_handler(message: Message):
         await message.answer(f"Xatolik: {e}")
 
 # === AQLLI QIDIRUV (2:255 yeki Baqara 255) ===
-@router.message(F.text & ~F.text.in_({"📖 Qur'on o'qish va tinglash", "📖 Қуръон ўқиш ва тинглаш", "🕌 Namoz vaqtlari", "🕌 Намоз вақтлари", "✨ Kun oyati", "✨ Кун ояти", "🤲 Duolar", "🤲 Дуолар", "🧭 Qibla", "🧭 Қибла", "🔍 Qidiruv", "🔍 Қидирув", "📿 Elektron tasbeh", "📿 Электрон тасбеҳ", "🔙 Asosiy menyu", "🔙 Асосий меню", "⚙️ Sozlamalar", "⚙️ Созламалар"}))
+@router.message(F.text & ~F.text.in_({"📖 Qur'on o'qish va tinglash", "📖 Қуръон ўқиш ва тинглаш", "🕌 Namoz vaqtlari", "🕌 Намоз вақтлари", "✨ Kun oyati", "✨ Кун ояти", "🤲 Duolar", "🤲 Дуолар", "🧭 Qibla", "🧭 Қибла", "✨ Asmo ul-Husna", "✨ Асмо ул-Ҳусна", "🔍 Qidiruv", "🔍 Қидирув", "📿 Elektron tasbeh", "📿 Электрон тасбеҳ", "🔙 Asosiy menyu", "🔙 Асосий меню", "⚙️ Sozlamalar", "⚙️ Созламалар"}))
 async def search_verses_handler(message: Message):
     try:
         keyword = message.text.strip()
