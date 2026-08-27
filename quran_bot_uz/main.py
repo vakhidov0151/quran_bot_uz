@@ -110,7 +110,7 @@ async def main():
 
     # SCHEDULER'NI TOSHKENT VAQTIGA QULFLASH VA HAR DAQIQADA ISHLATISH
     scheduler = AsyncIOScheduler(timezone=TASHKENT_TZ)
-    scheduler.add_job(check_and_send_prayer_notifications, "cron", minute="*")
+    scheduler.add_job(check_and_send_prayer_notifications, "cron", minute="*"), args=(bot,))
     scheduler.start()
 
     print("🚀 Bot muvaffaqiyatli ishga tushdi!")
