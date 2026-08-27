@@ -76,3 +76,27 @@ def get_verses_keyboard(surah_id: int, total_verses: int, page: int = 1, limit: 
     builder.row(InlineKeyboardButton(text=btn_back, callback_data="back_to_surahs"))
     
     return builder.as_markup()
+
+def get_asma_keyboard(asma_list, page: int = 1, limit: int = 30, script='latin'):
+    builder = InlineKeyboardBuilder()
+    start_idx = (page - 1) * limit
+    end_idx = start_idx + limit
+    
+    for asma in asma_list[start_idx:end_idx]:
+        builder.add(InlineKeyboardButton(text=f"{asma['id']}. {asma['latin']}", callback_data=f"asma:{asma['id']}"))
+        
+    builder.adjust(2) 
+    
+    nav_buttons = []
+    btn_prev = "⬅️ Олдинги" if script == 'cyrillic' else "⬅️ Oldingi"
+    btn_next = "Кейинги ➡️" if script == 'cyrillic' else "Keyingi ➡️"
+    
+    if page > 1:
+        nav_buttons.append(InlineKeyboardButton(text=btn_prev, callback_data=f"apage:{page-1}"))
+    if end_idx < len(asma_list):
+        nav_buttons.append(InlineKeyboardButton(text=btn_next, callback_data=f"apage:{page+1}"))
+    
+    if nav_buttons:
+        builder.row(*nav_buttons)
+        
+    return builder.as_markup()
