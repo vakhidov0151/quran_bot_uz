@@ -3,7 +3,7 @@ import aiohttp
 import os
 from aiogram import Router, F
 from aiogram.filters import CommandStart, Command
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from keyboards.reply import get_main_keyboard
 from keyboards.inline import get_surahs_keyboard, get_verses_keyboard, get_audio_keyboard
@@ -55,7 +55,7 @@ async def cmd_start(message: Message):
 @router.callback_query(F.data.startswith("set_script:"))
 async def set_script_callback(call: CallbackQuery):
     script = call.data.split(":")[1]
-    await set_user_script(call.fromuser.id, script)
+    await set_user_script(call.from_user.id, script)
     lang = "Lotin yozuvi" if script == 'latin' else "Кирилл ёзуви"
     menu_text = "Pastdagi menyudan kerakli bo'limni tanlang:" if script == 'latin' else "Пастдаги менюдан керакли бўлимни танланг:"
     
@@ -66,6 +66,12 @@ async def set_script_callback(call: CallbackQuery):
         parse_mode="Markdown"
     )
     await call.answer()
+
+@router.message(F.text.in_({"🔙 Asosiy menyu", "🔙 Асосий меню"}))
+async def back_to_main_handler(message: Message):
+    script = await get_user_script(message.from_user.id)
+    text = "Asosiy menyu:" if script == 'latin' else "Асосий меню:"
+    await message.answer(text, reply_markup=get_main_keyboard(script))
 
 @router.message(F.location)
 async def handle_location(message: Message):
@@ -79,16 +85,28 @@ async def prayer_times_handler(message: Message):
     script = await get_user_script(message.from_user.id)
     location = await get_user_location(message.from_user.id)
     
+    # 📍 LOKATSIYA TUGMASI SHU YERDA QO'SHILDI
     if not location or not location['latitude']:
-        msg_text = "Siz hali joylashuvingizni yubormagansiz.\n\nIltimos, pastdagi «📍 Joylashuvni jo'natish» tugmasini bosing." if script == 'latin' else "Сиз ҳали жойлашувингизни юбормагансиз.\n\nИлтимос, пастдаги «📍 Жойлашувни жўнатиш» тугмасини босинг."
-        await message.answer(msg_text)
+        btn_text = "📍 Joylashuvni jo'natish" if script == 'latin' else "📍 Жойлашувни жўнатиш"
+        back_text = "🔙 Asosiy menyu" if script == 'latin' else "🔙 Асосий меню"
+        
+        kb = ReplyKeyboardMarkup(
+            keyboard=[
+                [KeyboardButton(text=btn_text, request_location=True)],
+                [KeyboardButton(text=back_text)]
+            ],
+            resize_keyboard=True
+        )
+        
+        msg_text = "Siz hali joylashuvingizni yubormagansiz.\n\nIltimos, pastdagi **«📍 Joylashuvni jo'natish»** tugmasini bosing." if script == 'latin' else "Сиз ҳали жойлашувингизни юбормагансиз.\n\nИлтимос, пастдаги **«📍 Жойлашувни жўнатиш»** тугмасини босинг."
+        await message.answer(msg_text, reply_markup=kb, parse_mode="Markdown")
         return
 
     try:
         lat = float(location['latitude'])
         lon = float(location['longitude'])
         
-        # === ISLOM.UZ VAQTLARIGA TO'LIQ MOSLANGAN YANGI API HAQOLA ===
+        # ISLOM.UZ VAQTLARIGA MOSLANGAN API
         aladhan_url = f"http://api.aladhan.com/v1/timings?latitude={lat}&longitude={lon}&method=99&methodSettings=18,null,15&tune=0,0,0,0,0,0,5,0,0&school=1"
         
         async with aiohttp.ClientSession() as session:
@@ -344,7 +362,7 @@ async def tasbih_callback(call: CallbackQuery):
     except Exception: pass
     await call.answer()
 
-@router.message(F.text & ~F.text.in_({"📖 Qur'on o'qish va tinglash", "📖 Қуръон ўқиш ва тинглаш", "🕌 Namoz vaqtlari", "🕌 Намоз вақтлари", "✨ Kun oyati", "✨ Кун ояти", "🤲 Duolar", "🤲 Дуолар", "🔍 Qidiruv", "🔍 Қидирув", "📿 Elektron tasbeh", "📿 Электрон тасбеҳ"}))
+@router.message(F.text & ~F.text.in_({"📖 Qur'on o'qish va tinglash", "📖 Қуръон ўқиш ва тинглаш", "🕌 Namoz vaqtlari", "🕌 Намоз вақтлари", "✨ Kun oyati", "✨ Кун ояти", "🤲 Duolar", "🤲 Дуолар", "🔍 Qidiruv", "🔍 Қидирув", "📿 Elektron tasbeh", "📿 Электрон тасбеҳ", "🔙 Asosiy menyu", "🔙 Асосий меню"}))
 async def search_verses_handler(message: Message):
     try:
         keyword = message.text.strip()
