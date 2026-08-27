@@ -42,7 +42,10 @@ async def check_and_send_prayer_notifications(bot: Bot):
                 # 1. XOTIRANI TEKSHIRISH
                 user_cache = prayer_time_cache.get(user_id)
                 if not user_cache or user_cache.get('date') != current_date:
-                    url = f"http://api.aladhan.com/v1/timings?latitude={lat}&longitude={lon}&method=1&school=1"
+                    
+                    # === ISLOM.UZ VAQTLARIGA TO'LIQ MOSLANGAN YANGI API HAQOLA ===
+                    url = f"http://api.aladhan.com/v1/timings?latitude={lat}&longitude={lon}&method=99&methodSettings=18,null,15&tune=0,0,0,0,0,0,5,0,0&school=1"
+                    
                     try:
                         async with session.get(url, timeout=5) as response:
                             if response.status == 200:
@@ -110,10 +113,7 @@ async def main():
 
     # SCHEDULER'NI TOSHKENT VAQTIGA QULFLASH VA HAR DAQIQADA ISHLATISH
     scheduler = AsyncIOScheduler(timezone=TASHKENT_TZ)
-    
-    # Kichik xato bo'lgan joy to'liq va to'g'ri holatda yozildi:
     scheduler.add_job(check_and_send_prayer_notifications, "cron", minute="*", args=(bot,))
-    
     scheduler.start()
 
     print("🚀 Bot muvaffaqiyatli ishga tushdi!")
