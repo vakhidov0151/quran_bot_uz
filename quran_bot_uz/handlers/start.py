@@ -55,7 +55,7 @@ async def cmd_start(message: Message):
 @router.callback_query(F.data.startswith("set_script:"))
 async def set_script_callback(call: CallbackQuery):
     script = call.data.split(":")[1]
-    await set_user_script(call.from_user.id, script)
+    await set_user_script(call.fromuser.id, script)
     lang = "Lotin yozuvi" if script == 'latin' else "Кирилл ёзуви"
     menu_text = "Pastdagi menyudan kerakli bo'limni tanlang:" if script == 'latin' else "Пастдаги менюдан керакли бўлимни танланг:"
     
@@ -88,7 +88,8 @@ async def prayer_times_handler(message: Message):
         lat = float(location['latitude'])
         lon = float(location['longitude'])
         
-        aladhan_url = f"http://api.aladhan.com/v1/timings?latitude={lat}&longitude={lon}&method=1&school=1"
+        # === ISLOM.UZ VAQTLARIGA TO'LIQ MOSLANGAN YANGI API HAQOLA ===
+        aladhan_url = f"http://api.aladhan.com/v1/timings?latitude={lat}&longitude={lon}&method=99&methodSettings=18,null,15&tune=0,0,0,0,0,0,5,0,0&school=1"
         
         async with aiohttp.ClientSession() as session:
             async with session.get(aladhan_url, timeout=8) as response:
