@@ -12,7 +12,11 @@ from handlers import start
 
 logging.basicConfig(level=logging.INFO)
 
+# TOSHKEN VAQTINI QAT'IY BELGILASH
 TASHKENT_TZ = ZoneInfo("Asia/Tashkent")
+
+# API'ni har daqiqada qiynamaslik uchun xotira
+prayer_time_cache = {}
 
 location_cache = {}
 user_sent_cache = {}
@@ -46,7 +50,7 @@ async def check_and_send_prayer_notifications(bot: Bot):
                             if response.status == 200:
                                 data = await response.json()
                                 raw_timings = data['data']['timings']
-                                loc_tz = data['data']['meta']['timezone'] 
+                                loc_tz = data['data']['meta']['timezone']
                                 timings = {k: v.split(" ")[0][:5] for k, v in raw_timings.items()}
                                 
                                 m_time = datetime.datetime.strptime(timings['Maghrib'], "%H:%M")
@@ -101,6 +105,42 @@ async def check_and_send_prayer_notifications(bot: Bot):
     except Exception as e:
         print(f"Xatolik (Checker): {e}")
 
+async def check_and_send_juma_notifications(bot: Bot):
+    try:
+        from database.db_manager import get_random_verse
+        
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute("SELECT user_id, script FROM users") as cursor:
+                users = await cursor.fetchall()
+
+        if not users:
+            return
+
+        for user in users:
+            user_id = user['user_id']
+            script = user['script']
+            
+            verse = await get_random_verse(script)
+            if verse:
+                title = "✨ **Juma ayyomi muborak! Kun oyati** ✨" if script == 'latin' else "✨ **Жума айёми муборак! Кун ояти** ✨"
+                sura_text, oyat_text = ("surasi", "oyat") if script == 'latin' else ("сураси", "оят")
+                name = verse.get('surah_name_uz', verse.get('name_uz', ''))
+                v_id = verse.get('verse_id', verse.get('id', ''))
+                ar = verse.get('text_arabic', verse.get('arabic', ''))
+                uz = verse.get('text_uzbek', verse.get('uzbek', verse.get('text', '')))
+                
+                text = f"{title}\n\n📖 **{name} {sura_text}, {v_id}-{oyat_text}**\n\n📝 {ar}\n\n🇺🇿 {uz}"
+                
+                try:
+                    await bot.send_message(user_id, text, parse_mode="Markdown")
+                    await asyncio.sleep(0.1)
+                except Exception:
+                    pass
+
+    except Exception as e:
+        print(f"Xatolik (Juma Checker): {e}")
+
 async def main():
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher()
@@ -123,6 +163,8 @@ async def main():
 
     scheduler = AsyncIOScheduler(timezone=TASHKENT_TZ)
     scheduler.add_job(check_and_send_prayer_notifications, "cron", minute="*", args=(bot,))
+    # Juma xabarnomasi: Har juma kuni soat 08:00 da (Toshkent vaqti bilan)
+    scheduler.add_job(check_and_send_juma_notifications, "cron", day_of_week="fri", hour=8, minute=0, args=(bot,))
     scheduler.start()
 
     print("🚀 Bot muvaffaqiyatli ishga tushdi!")
