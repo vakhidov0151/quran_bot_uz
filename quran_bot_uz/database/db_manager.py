@@ -106,13 +106,11 @@ async def get_verse(surah_id: int, verse_id: int, script='latin'):
             row = await cursor.fetchone()
             return translate_dict(dict(row), script) if row else None
 
-# === YANGI FUNKSIYA: SURA NOMI VA OYAT RAQAMI BO'YICHA QIDIRISH ===
 async def get_verse_by_sura_name(keyword: str, verse_id: int, script='latin'):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         search_word1 = f"%{latin_to_cyrillic(keyword)}%"
         search_word2 = f"%{keyword}%"
-        # Ikkala yozuvda ham izlaymiz (name_uz yoki surah_name_uz)
         query = """
             SELECT * FROM verses 
             WHERE (surah_name_uz LIKE ? OR surah_name_uz LIKE ? OR name_uz LIKE ? OR name_uz LIKE ?) 
@@ -178,5 +176,36 @@ async def get_random_verse(script='latin'):
         day_index = now.toordinal() % len(CUSTOM_VERSES)
         sura_id, ayah_id = CUSTOM_VERSES[day_index]
         async with db.execute("SELECT * FROM verses WHERE surah_id = ? AND verse_id = ?", (sura_id, ayah_id)) as cursor:
+            row = await cursor.fetchone()
+            return translate_dict(dict(row), script) if row else None
+
+async def get_all_asmaulhusna(script='latin'):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("CREATE TABLE IF NOT EXISTS asma (id INTEGER PRIMARY KEY, arabic TEXT, latin TEXT, uzbek TEXT)")
+        async with db.execute("SELECT COUNT(*) FROM asma") as cursor:
+            if (await cursor.fetchone())[0] == 0:
+                asma_data = [
+                    (1, "الرَّحْمَنُ", "Ar-Rohman", "Mehribon — Barcha maxluqotlarga rahmat qiluvchi."),
+                    (2, "الرَّحِيمُ", "Ar-Rohiym", "Rahmli — Oxiratda faqat mo'minlarga rahmat qiluvchi."),
+                    (3, "الْمَلِكُ", "Al-Malik", "Podshoh — Barcha narsaning egasi va haqiqiy hukmdori."),
+                    (4, "الْقُدُّوسُ", "Al-Quddus", "Muqaddas — Barcha ayb va nuqsonlardan pok zot."),
+                    (5, "السَّلَامُ", "As-Salom", "Omonlik beruvchi — Barcha ofatlardan salomat saqlovchi."),
+                    (6, "الْمُؤْمِنُ", "Al-Mo'min", "Iymon va omonlik beruvchi."),
+                    (7, "الْمُهَيْمِنُ", "Al-Muhaymin", "Kuzatib turuvchi — Hamma narsani asrab, himoya qiluvchi."),
+                    (8, "الْعَزِيزُ", "Al-Aziz", "Izzatli — Barcha narsadan g'olib va qudratli."),
+                    (9, "الْجَبَّارُ", "Al-Jabbor", "Kompensatsiya qiluvchi, bo'ysundiruvchi."),
+                    (10, "الْمُتَكَبِّرُ", "Al-Mutakabbir", "Ulug'vor — Kibr va ulug'lik faqat unga xos zot.")
+                ]
+                await db.executemany("INSERT INTO asma (id, arabic, latin, uzbek) VALUES (?, ?, ?, ?)", asma_data)
+                await db.commit()
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM asma ORDER BY id") as cursor:
+            rows = await cursor.fetchall()
+            return [translate_dict(dict(row), script) for row in rows]
+
+async def get_asma_by_id(asma_id: int, script='latin'):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM asma WHERE id = ?", (asma_id,)) as cursor:
             row = await cursor.fetchone()
             return translate_dict(dict(row), script) if row else None
