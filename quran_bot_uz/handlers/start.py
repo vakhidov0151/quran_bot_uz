@@ -1,6 +1,7 @@
 import math
 import aiohttp
 import os
+import datetime
 from aiogram import Router, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
@@ -85,7 +86,6 @@ async def prayer_times_handler(message: Message):
     script = await get_user_script(message.from_user.id)
     location = await get_user_location(message.from_user.id)
     
-    # 📍 LOKATSIYA TUGMASI SHU YERDA QO'SHILDI
     if not location or not location['latitude']:
         btn_text = "📍 Joylashuvni jo'natish" if script == 'latin' else "📍 Жойлашувни жўнатиш"
         back_text = "🔙 Asosiy menyu" if script == 'latin' else "🔙 Асосий меню"
@@ -106,14 +106,22 @@ async def prayer_times_handler(message: Message):
         lat = float(location['latitude'])
         lon = float(location['longitude'])
         
-        # ISLOM.UZ VAQTLARIGA MOSLANGAN API
-        aladhan_url = f"http://api.aladhan.com/v1/timings?latitude={lat}&longitude={lon}&method=99&methodSettings=18,null,15&tune=0,0,0,0,0,0,5,0,0&school=1"
+        aladhan_url = f"http://api.aladhan.com/v1/timings?latitude={lat}&longitude={lon}&method=99&methodSettings=18,null,15&school=1"
         
         async with aiohttp.ClientSession() as session:
             async with session.get(aladhan_url, timeout=8) as response:
                 if response.status == 200:
                     data = await response.json()
-                    timings = data['data']['timings']
+                    
+                    # "(UZT)" yozuvlarini tozalaymiz
+                    raw_timings = data['data']['timings']
+                    timings = {k: v.split(" ")[0][:5] for k, v in raw_timings.items()}
+                    
+                    # ⚙️ ISLOM.UZ UCHUN MAXSUS: Shom (Maghrib) ga aniq +5 daqiqa qo'shamiz
+                    m_time = datetime.datetime.strptime(timings['Maghrib'], "%H:%M")
+                    m_time += datetime.timedelta(minutes=5)
+                    timings['Maghrib'] = m_time.strftime("%H:%M")
+                    
                     h_date = data['data']['date']['hijri']
                     
                     if script == 'latin':
