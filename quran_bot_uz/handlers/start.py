@@ -2,7 +2,7 @@ import math
 import aiohttp
 import os
 import datetime
-import re # <-- Yangi qidiruv tizimi uchun
+import re
 from aiogram import Router, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
@@ -12,7 +12,7 @@ from database.db_manager import (
     save_user_location, get_user_location, get_all_surahs, 
     get_surah_info, get_verse, get_all_duas, get_dua_by_id, search_verses_by_text,
     set_user_script, get_user_script, get_random_verse, set_user_qari, get_user_qari,
-    get_verse_by_sura_name # <-- Yangi funksiyani ulaymiz
+    get_verse_by_sura_name
 )
 
 router = Router()
@@ -415,8 +415,52 @@ async def tasbih_callback(call: CallbackQuery):
     except Exception: pass
     await call.answer()
 
+@router.message(F.text.in_({"🧭 Qibla", "🧭 Қибла"}))
+async def qibla_handler(message: Message):
+    script = await get_user_script(message.from_user.id)
+    location = await get_user_location(message.from_user.id)
+    
+    if not location or not location['latitude']:
+        btn_text = "📍 Joylashuvni jo'natish" if script == 'latin' else "📍 Жойлашувни жўнатиш"
+        back_text = "🔙 Asosiy menyu" if script == 'latin' else "🔙 Асосий меню"
+        kb = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text=btn_text, request_location=True)], [KeyboardButton(text=back_text)]], resize_keyboard=True)
+        msg_text = "Qiblani aniqlash uchun joylashuvingiz kerak.\n\nIltimos, pastdagi **«📍 Joylashuvni jo'natish»** tugmasini bosing." if script == 'latin' else "Қиблани аниқлаш учун жойлашувингиз керак.\n\nИлтимос, пастдаги **«📍 Жойлашувни жўнатиш»** тугмасини босинг."
+        await message.answer(msg_text, reply_markup=kb, parse_mode="Markdown")
+        return
+
+    try:
+        lat = float(location['latitude'])
+        lon = float(location['longitude'])
+        
+        # Ka'ba koordinatalari
+        lat_k = math.radians(21.422487)
+        lon_k = math.radians(39.826206)
+        lat_u = math.radians(lat)
+        lon_u = math.radians(lon)
+
+        y = math.sin(lon_k - lon_u)
+        x = math.cos(lat_u) * math.tan(lat_k) - math.sin(lat_u) * math.cos(lon_k - lon_u)
+
+        qibla = math.degrees(math.atan2(y, x))
+        qibla = (qibla + 360) % 360
+        
+        qibla_link = "https://qiblafinder.withgoogle.com/"
+        
+        if script == 'latin':
+            text = (f"🧭 **Qibla yo'nalishi**\n\n"
+                    f"Sizning joylashuvingiz bo'yicha Qibla (Ka'ba) yo'nalishi Shimoldan soat mili bo'ylab taxminan **{qibla:.1f}°** gradusda joylashgan.\n\n"
+                    f"📱 Aniqroq ko'rish uchun maxsus 3D xaritadan foydalaning:\n👉 [Qibla Finder Google]({qibla_link})")
+        else:
+            text = (f"🧭 **Қибла йўналиши**\n\n"
+                    f"Сизнинг жойлашувингиз бўйича Қибла (Каъба) йўналиши Шимолдан соат мили бўйлаб тахминан **{qibla:.1f}°** градусда жойлашган.\n\n"
+                    f"📱 Аниқроқ кўриш учун махсус 3D харитадан фойдаланинг:\n👉 [Qibla Finder Google]({qibla_link})")
+            
+        await message.answer(text, parse_mode="Markdown", disable_web_page_preview=True)
+    except Exception as e:
+        await message.answer(f"Xatolik: {e}")
+
 # === AQLLI QIDIRUV (2:255 yeki Baqara 255) ===
-@router.message(F.text & ~F.text.in_({"📖 Qur'on o'qish va tinglash", "📖 Қуръон ўқиш ва тинглаш", "🕌 Namoz vaqtlari", "🕌 Намоз вақтлари", "✨ Kun oyati", "✨ Кун ояти", "🤲 Duolar", "🤲 Дуолар", "🔍 Qidiruv", "🔍 Қидирув", "📿 Elektron tasbeh", "📿 Электрон тасбеҳ", "🔙 Asosiy menyu", "🔙 Асосий меню", "⚙️ Sozlamalar", "⚙️ Созламалар"}))
+@router.message(F.text & ~F.text.in_({"📖 Qur'on o'qish va tinglash", "📖 Қуръон ўқиш ва тинглаш", "🕌 Namoz vaqtlari", "🕌 Намоз вақтлари", "✨ Kun oyati", "✨ Кун ояти", "🤲 Duolar", "🤲 Дуолар", "🧭 Qibla", "🧭 Қибла", "🔍 Qidiruv", "🔍 Қидирув", "📿 Elektron tasbeh", "📿 Электрон тасбеҳ", "🔙 Asosiy menyu", "🔙 Асосий меню", "⚙️ Sozlamalar", "⚙️ Созламалар"}))
 async def search_verses_handler(message: Message):
     try:
         keyword = message.text.strip()
