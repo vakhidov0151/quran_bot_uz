@@ -183,11 +183,16 @@ async def get_random_verse(script='latin'):
 async def get_all_asmaulhusna(script='latin'):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("CREATE TABLE IF NOT EXISTS asma (id INTEGER PRIMARY KEY, arabic TEXT, latin TEXT, uzbek TEXT)")
+        
+        # Cursor'ni yopib keyin drop qilish uchun
+        count = 0
         async with db.execute("SELECT COUNT(*) FROM asma") as cursor:
-            if (await cursor.fetchone())[0] < 99:
-                await db.execute("DROP TABLE asma")
-                await db.execute("CREATE TABLE asma (id INTEGER PRIMARY KEY, arabic TEXT, latin TEXT, uzbek TEXT)")
-                asma_data = [
+            count = (await cursor.fetchone())[0]
+            
+        if count < 99:
+            await db.execute("DROP TABLE asma")
+            await db.execute("CREATE TABLE asma (id INTEGER PRIMARY KEY, arabic TEXT, latin TEXT, uzbek TEXT)")
+            asma_data = [
                     (1, "الرَّحْمَنُ", "Ar-Rahmon", "Mehribon — Barcha maxluqotlarga rahmat qiluvchi."),
                     (2, "الرَّحِيمُ", "Ar-Rohiym", "Rahmli — Oxiratda faqat mo'minlarga rahmat qiluvchi."),
                     (3, "الْمَلِكُ", "Al-Malik", "Podshoh — Barcha narsaning egasi va haqiqiy hukmdori."),
@@ -288,8 +293,9 @@ async def get_all_asmaulhusna(script='latin'):
                     (98, "الرَّشِيدُ", "Ar-Rashiyd", "Barcha ishlarni to'g'ri va hikmat bilan boshqaruvchi."),
                     (99, "الصَّبُورُ", "As-Sabur", "Gunohkorlarga jazo berishga shoshilmaydigan, o'ta sabrli.")
                 ]
-                await db.executemany("INSERT INTO asma (id, arabic, latin, uzbek) VALUES (?, ?, ?, ?)", asma_data)
-                await db.commit()
+            await db.executemany("INSERT INTO asma (id, arabic, latin, uzbek) VALUES (?, ?, ?, ?)", asma_data)
+            await db.commit()
+            
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT * FROM asma ORDER BY id") as cursor:
             rows = await cursor.fetchall()
