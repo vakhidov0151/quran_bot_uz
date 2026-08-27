@@ -2,6 +2,7 @@ import math
 import aiohttp
 import os
 import datetime
+import re # <-- Yangi qidiruv tizimi uchun
 from aiogram import Router, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
@@ -10,7 +11,8 @@ from keyboards.inline import get_surahs_keyboard, get_verses_keyboard
 from database.db_manager import (
     save_user_location, get_user_location, get_all_surahs, 
     get_surah_info, get_verse, get_all_duas, get_dua_by_id, search_verses_by_text,
-    set_user_script, get_user_script, get_random_verse, set_user_qari, get_user_qari
+    set_user_script, get_user_script, get_random_verse, set_user_qari, get_user_qari,
+    get_verse_by_sura_name # <-- Yangi funksiyani ulaymiz
 )
 
 router = Router()
@@ -45,7 +47,6 @@ async def set_script_callback(call: CallbackQuery):
     script = call.data.split(":")[1]
     await set_user_script(call.from_user.id, script)
     
-    # Til tanlangach, darhol Qori tanlashni so'raymiz
     text, kb = get_qari_inline_keyboard(script)
     await call.message.delete()
     await call.message.answer(text, reply_markup=kb, parse_mode="Markdown")
@@ -62,7 +63,6 @@ async def set_qari_callback(call: CallbackQuery):
     await call.message.answer(menu_text, reply_markup=get_main_keyboard(script), parse_mode="Markdown")
     await call.answer()
 
-# === SOZLAMALAR MENYUSI ===
 @router.message(F.text.in_({"⚙️ Sozlamalar", "⚙️ Созламалар"}))
 async def settings_handler(message: Message):
     script = await get_user_script(message.from_user.id)
@@ -139,16 +139,11 @@ async def prayer_times_handler(message: Message):
             async with session.get(aladhan_url, timeout=8) as response:
                 if response.status == 200:
                     data = await response.json()
-                    
-                    # "(UZT)" yozuvlarini tozalaymiz
                     raw_timings = data['data']['timings']
                     timings = {k: v.split(" ")[0][:5] for k, v in raw_timings.items()}
-                    
-                    # ⚙️ ISLOM.UZ UCHUN MAXSUS: Shom (Maghrib) ga aniq +5 daqiqa qo'shamiz
                     m_time = datetime.datetime.strptime(timings['Maghrib'], "%H:%M")
                     m_time += datetime.timedelta(minutes=5)
                     timings['Maghrib'] = m_time.strftime("%H:%M")
-                    
                     h_date = data['data']['date']['hijri']
                     
                     if script == 'latin':
@@ -251,7 +246,6 @@ async def back_to_surahs_callback(call: CallbackQuery):
     await call.message.edit_text(msg_text, reply_markup=get_surahs_keyboard(surahs, page=1, script=script), parse_mode="Markdown")
     await call.answer()
 
-# === TO'LIQ SURA AUDIOSI QORI BO'YICHA ===
 @router.callback_query(F.data.startswith("full:"))
 async def full_surah_callback(call: CallbackQuery):
     script = await get_user_script(call.from_user.id)
@@ -276,7 +270,6 @@ async def full_surah_callback(call: CallbackQuery):
         await call.message.answer(f"{msg}\n\n📥 **Audio havola:** [Tinglash / Yuklab olish]({audio_url})", parse_mode="Markdown")
     await call.answer()
 
-# === BITALAB OYAT AUDIOSI ===
 @router.callback_query(F.data.startswith("verse:"))
 async def verse_clicked_callback(call: CallbackQuery):
     script = await get_user_script(call.from_user.id)
@@ -293,8 +286,7 @@ async def verse_clicked_callback(call: CallbackQuery):
         text = f"📖 **{name} {sura_text}, {v_id}-{oyat_text}**\n\n📝 {ar}\n\n🇺🇿 {uz}"
         
         btn_text = "▶️ Oyatni tinglash" if script == 'latin' else "▶️ Оятни тинглаш"
-        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=btn_text, callback_data=f"play_audio:{surah_id}:{verse_id}")]])
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=btn_text, callback_data=f"play_audio:{surah_id}:{v_id}")]])
         
         await call.message.answer(text, reply_markup=kb, parse_mode="Markdown")
     await call.answer()
@@ -305,7 +297,6 @@ async def play_audio_callback(call: CallbackQuery):
     qari_code = await get_user_qari(call.from_user.id)
     _, surah_id, verse_id = call.data.split(":")
     
-    # API Qorilar kodlari
     QARI_MAP = {
         'alafasy': 'ar.alafasy',
         'husary': 'ar.husary',
@@ -372,7 +363,7 @@ async def back_to_duas_callback(call: CallbackQuery):
 @router.message(F.text.in_({"🔍 Qidiruv", "🔍 Қидирув"}))
 async def search_prompt_handler(message: Message):
     script = await get_user_script(message.from_user.id)
-    text = "🔍 **Qidiruv**\n\nQidirmoqchi bo'lgan so'zingizni yuboring (masalan: _sabr_):" if script == 'latin' else "🔍 **Қидирув**\n\nҚидирмоқчи бўлган сўзингизни юборинг (масалан: _сабр_):"
+    text = "🔍 **Qidiruv**\n\nQidirmoqchi bo'lgan so'zingizni yoki oyat raqamini yuboring (Masalan: _sabr_ yoki _2:255_ yoki _Baqara 255_):" if script == 'latin' else "🔍 **Қидирув**\n\nҚидирмоқчи бўлган сўзингизни ёки оят рақамини юборинг (Масалан: _сабр_ ёки _2:255_ ёки _Бақара 255_):"
     await message.answer(text, parse_mode="Markdown")
 
 @router.message(F.text.in_({"📿 Elektron tasbeh", "📿 Электрон тасбеҳ"}))
@@ -424,6 +415,7 @@ async def tasbih_callback(call: CallbackQuery):
     except Exception: pass
     await call.answer()
 
+# === AQLLI QIDIRUV (2:255 yeki Baqara 255) ===
 @router.message(F.text & ~F.text.in_({"📖 Qur'on o'qish va tinglash", "📖 Қуръон ўқиш ва тинглаш", "🕌 Namoz vaqtlari", "🕌 Намоз вақтлари", "✨ Kun oyati", "✨ Кун ояти", "🤲 Duolar", "🤲 Дуолар", "🔍 Qidiruv", "🔍 Қидирув", "📿 Elektron tasbeh", "📿 Электрон тасбеҳ", "🔙 Asosiy menyu", "🔙 Асосий меню", "⚙️ Sozlamalar", "⚙️ Созламалар"}))
 async def search_verses_handler(message: Message):
     try:
@@ -432,6 +424,42 @@ async def search_verses_handler(message: Message):
             
         script = await get_user_script(message.from_user.id)
         
+        # 1-QADAM: Raqamlar orqali tekshirish (masalan: 2:255, 2 255, 2.255)
+        m1 = re.match(r"^(\d+)(?:\s+|:|\.|-)+(\d+)$", keyword)
+        # 2-QADAM: Sura nomi orqali tekshirish (masalan: baqara 255, fotiha 7)
+        m2 = re.match(r"^([^\d]+)(?:\s+|:|\.|-)+(\d+)$", keyword)
+        
+        verse = None
+        surah_id, verse_id = 0, 0
+        
+        if m1:
+            surah_id = int(m1.group(1))
+            verse_id = int(m1.group(2))
+            verse = await get_verse(surah_id, verse_id, script)
+        elif m2:
+            s_name = m2.group(1).strip()
+            verse_id = int(m2.group(2))
+            verse = await get_verse_by_sura_name(s_name, verse_id, script)
+            if verse:
+                surah_id = verse.get('surah_id', 0)
+        
+        # Agar "2:255" tipida topilsa, chiroyli qilib audiosi bilan birga chiqaramiz
+        if verse:
+            sura_text, oyat_text = ("surasi", "oyat") if script == 'latin' else ("сураси", "оят")
+            name = verse.get('surah_name_uz', verse.get('name_uz', ''))
+            v_id = verse.get('verse_id', verse.get('id', ''))
+            ar = verse.get('text_arabic', verse.get('arabic', ''))
+            uz = verse.get('text_uzbek', verse.get('uzbek', verse.get('text', '')))
+            
+            text = f"📖 **{name} {sura_text}, {v_id}-{oyat_text}**\n\n📝 {ar}\n\n🇺🇿 {uz}"
+            
+            btn_text = "▶️ Oyatni tinglash" if script == 'latin' else "▶️ Оятни тинглаш"
+            kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=btn_text, callback_data=f"play_audio:{surah_id}:{v_id}")]])
+            
+            await message.answer(text, reply_markup=kb, parse_mode="Markdown")
+            return
+            
+        # Agar format "2:255" bo'lmasa, unda oddiy so'zma-so'z izlashga o'tadi
         verses = await search_verses_by_text(keyword, script)
         if not verses:
             verses = await search_verses_by_text(keyword.lower(), script)
