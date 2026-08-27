@@ -21,8 +21,7 @@ def get_qari_inline_keyboard(script):
         [InlineKeyboardButton(text="🎙 Mishary Rashid Alafasy", callback_data="set_qari:alafasy")],
         [InlineKeyboardButton(text="🎙 Mahmud Xalil al-Husayri", callback_data="set_qari:husary")],
         [InlineKeyboardButton(text="🎙 Abdulbosit Abdussomad", callback_data="set_qari:abdulbasit")],
-        [InlineKeyboardButton(text="🎙 Muhammad Siddiq Minshaviy", callback_data="set_qari:minshawi")],
-        [InlineKeyboardButton(text="🎙 Abdurroshid Sufiy", callback_data="set_qari:sufi")]
+        [InlineKeyboardButton(text="🎙 Muhammad Siddiq Minshaviy", callback_data="set_qari:minshawi")]
     ])
     return text, kb
 
@@ -140,11 +139,16 @@ async def prayer_times_handler(message: Message):
             async with session.get(aladhan_url, timeout=8) as response:
                 if response.status == 200:
                     data = await response.json()
+                    
+                    # "(UZT)" yozuvlarini tozalaymiz
                     raw_timings = data['data']['timings']
                     timings = {k: v.split(" ")[0][:5] for k, v in raw_timings.items()}
+                    
+                    # ⚙️ ISLOM.UZ UCHUN MAXSUS: Shom (Maghrib) ga aniq +5 daqiqa qo'shamiz
                     m_time = datetime.datetime.strptime(timings['Maghrib'], "%H:%M")
                     m_time += datetime.timedelta(minutes=5)
                     timings['Maghrib'] = m_time.strftime("%H:%M")
+                    
                     h_date = data['data']['date']['hijri']
                     
                     if script == 'latin':
@@ -163,9 +167,30 @@ async def prayer_times_handler(message: Message):
                                 f"🌆 Шом: {timings['Maghrib']}\n🌃 Хуфтон: {timings['Isha']}")
                     await message.answer(text, parse_mode="Markdown")
                 else:
-                    await message.answer("API serverida xatolik yuz berdi.")
+                    await message.answer("API serverida xatolik yuz berdi." if script == 'latin' else "API серверида хатолик юз берди.")
     except Exception as e:
         await message.answer(f"Xatolik: {e}")
+
+@router.message(Command("testdb"))
+async def test_db_handler(message: Message):
+    import aiosqlite
+    from config import DB_PATH
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            async with db.execute("SELECT name FROM sqlite_master WHERE type='table';") as cursor:
+                tables = await cursor.fetchall()
+                names = [t[0] for t in tables if t[0] != 'sqlite_sequence']
+                
+                text = f"✅ BAZA ULANDI: {DB_PATH}\n\nJadvallar ({len(names)} ta):\n\n"
+                for name in names:
+                    async with db.execute(f"PRAGMA table_info('{name}')") as c:
+                        cols = await c.fetchall()
+                        col_names = [col[1] for col in cols]
+                        text += f"📁 **{name}**\nUstunlari: {', '.join(col_names)}\n\n"
+                        
+                await message.answer(text[:4000])
+    except Exception as e:
+        await message.answer(f"❌ Xato: {e}")
 
 @router.message(F.text.in_({"✨ Kun oyati", "✨ Кун ояти"}))
 async def daily_verse_handler(message: Message):
@@ -239,8 +264,7 @@ async def full_surah_callback(call: CallbackQuery):
             'alafasy': ('Mishary Rashid Alafasy', 'https://server8.mp3quran.net/afs/'),
             'husary': ('Mahmud Xalil al-Husayri', 'https://server13.mp3quran.net/husr/'),
             'abdulbasit': ('Abdulbosit Abdussomad', 'https://server7.mp3quran.net/basit/'),
-            'minshawi': ('Muhammad Siddiq Minshaviy', 'https://server10.mp3quran.net/minsh/'),
-            'sufi': ('Abdurroshid Sufiy', 'https://server16.mp3quran.net/sufi/')
+            'minshawi': ('Muhammad Siddiq Minshaviy', 'https://server10.mp3quran.net/minsh/')
         }
         
         qari_name, base_url = FULL_QARI_MAP.get(qari_code, FULL_QARI_MAP['alafasy'])
@@ -286,8 +310,7 @@ async def play_audio_callback(call: CallbackQuery):
         'alafasy': 'ar.alafasy',
         'husary': 'ar.husary',
         'abdulbasit': 'ar.abdulbasitmurattal',
-        'minshawi': 'ar.minshawi',
-        'sufi': 'ar.hudhaify' # API da xudayfiy ishlatiladi (juda tiniq)
+        'minshawi': 'ar.minshawi'
     }
     
     api_qari = QARI_MAP.get(qari_code, 'ar.alafasy')
@@ -310,7 +333,6 @@ async def play_audio_callback(call: CallbackQuery):
     except Exception as e:
         await call.message.answer(f"Xato: {e}")
 
-# Duolar va qolgan funksiyalar...
 @router.message(F.text.in_({"🤲 Duolar", "🤲 Дуолар"}))
 async def duas_menu_handler(message: Message):
     script = await get_user_script(message.from_user.id)
