@@ -15,7 +15,7 @@ logging.basicConfig(level=logging.INFO)
 # TOSHKEN VAQTINI QAT'IY BELGILASH
 TASHKENT_TZ = ZoneInfo("Asia/Tashkent")
 
-# API'ni har daqiqada qiynamaslik uchun foydalanuvchilarning bugungi vaqtlarini saqlovchi XOTIRA
+# API'ni har daqiqada qiynamaslik uchun xotira
 prayer_time_cache = {}
 
 async def check_and_send_prayer_notifications(bot: Bot):
@@ -39,19 +39,22 @@ async def check_and_send_prayer_notifications(bot: Bot):
                 lon = user['longitude']
                 script = user['script']
 
-                # 1. XOTIRANI TEKSHIRISH
                 user_cache = prayer_time_cache.get(user_id)
                 if not user_cache or user_cache.get('date') != current_date:
-                    
-                    # === ISLOM.UZ VAQTLARIGA TO'LIQ MOSLANGAN YANGI API HAQOLA ===
-                    url = f"http://api.aladhan.com/v1/timings?latitude={lat}&longitude={lon}&method=99&methodSettings=18,null,15&tune=0,0,0,0,0,0,5,0,0&school=1"
-                    
+                    url = f"http://api.aladhan.com/v1/timings?latitude={lat}&longitude={lon}&method=99&methodSettings=18,null,15&school=1"
                     try:
                         async with session.get(url, timeout=5) as response:
                             if response.status == 200:
                                 data = await response.json()
                                 raw_timings = data['data']['timings']
+                                # "(UZT)" yozuvlarini olib tashlab, toza soatni qoldiramiz
                                 timings = {k: v.split(" ")[0][:5] for k, v in raw_timings.items()}
+                                
+                                # ⚙️ ISLOM.UZ UCHUN MAXSUS: Shom (Maghrib) ga aniq +5 daqiqa qo'shamiz
+                                m_time = datetime.datetime.strptime(timings['Maghrib'], "%H:%M")
+                                m_time += datetime.timedelta(minutes=5)
+                                timings['Maghrib'] = m_time.strftime("%H:%M")
+
                                 prayer_time_cache[user_id] = {
                                     "date": current_date,
                                     "timings": timings,
@@ -61,7 +64,6 @@ async def check_and_send_prayer_notifications(bot: Bot):
                     except Exception:
                         continue 
 
-                # 2. VAQTNI SOLISHTIRISH
                 if user_cache and user_cache.get('date') == current_date:
                     timings = user_cache['timings']
                     sent_list = user_cache['sent']
@@ -111,7 +113,6 @@ async def main():
         """)
         await db.commit()
 
-    # SCHEDULER'NI TOSHKENT VAQTIGA QULFLASH VA HAR DAQIQADA ISHLATISH
     scheduler = AsyncIOScheduler(timezone=TASHKENT_TZ)
     scheduler.add_job(check_and_send_prayer_notifications, "cron", minute="*", args=(bot,))
     scheduler.start()
