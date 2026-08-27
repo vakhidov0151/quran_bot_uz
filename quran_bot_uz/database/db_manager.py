@@ -15,7 +15,6 @@ def cyrillic_to_latin(text: str) -> str:
     }
     text = text.replace('ў', "o'").replace('ғ', "g'").replace('қ', "q").replace('ҳ', "h")
     text = text.replace('Ў', "O'").replace('Ғ', "G'").replace('Қ', "Q").replace('Ҳ', "H")
-    
     result = [mapping.get(char, char) for char in text]
     return "".join(result)
 
@@ -36,11 +35,16 @@ async def ensure_user(user_id: int):
         try:
             await db.execute("ALTER TABLE users ADD COLUMN script TEXT DEFAULT 'latin'")
             await db.commit()
-        except:
-            pass
+        except: pass
+        try:
+            # Yangi ustun: Qorini saqlash uchun
+            await db.execute("ALTER TABLE users ADD COLUMN qari TEXT DEFAULT 'alafasy'")
+            await db.commit()
+        except: pass
+        
         async with db.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,)) as cursor:
             if not await cursor.fetchone():
-                await db.execute("INSERT INTO users (user_id, script) VALUES (?, 'latin')", (user_id,))
+                await db.execute("INSERT INTO users (user_id, script, qari) VALUES (?, 'latin', 'alafasy')", (user_id,))
                 await db.commit()
 
 async def set_user_script(user_id: int, script: str):
@@ -55,9 +59,24 @@ async def get_user_script(user_id: int) -> str:
             async with db.execute("SELECT script FROM users WHERE user_id = ?", (user_id,)) as cursor:
                 row = await cursor.fetchone()
                 if row and row[0]: return row[0]
-    except:
-        pass
+    except: pass
     return 'latin'
+
+# --- QORI SOZLAMALARI ---
+async def set_user_qari(user_id: int, qari: str):
+    await ensure_user(user_id)
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("UPDATE users SET qari = ? WHERE user_id = ?", (qari, user_id))
+        await db.commit()
+
+async def get_user_qari(user_id: int) -> str:
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            async with db.execute("SELECT qari FROM users WHERE user_id = ?", (user_id,)) as cursor:
+                row = await cursor.fetchone()
+                if row and row[0]: return row[0]
+    except: pass
+    return 'alafasy'
 
 def translate_dict(d: dict, script: str):
     if script == 'cyrillic': return d
@@ -77,12 +96,7 @@ async def get_all_surahs(script='latin'):
 async def get_surah_info(surah_id: int, script='latin'):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        query = """
-            SELECT surah_id, surah_name_uz, surah_name_ar, COUNT(verse_id) as total_verses 
-            FROM verses 
-            WHERE surah_id = ? 
-            GROUP BY surah_id
-        """
+        query = "SELECT surah_id, surah_name_uz, surah_name_ar, COUNT(verse_id) as total_verses FROM verses WHERE surah_id = ? GROUP BY surah_id"
         async with db.execute(query, (surah_id,)) as cursor:
             row = await cursor.fetchone()
             return translate_dict(dict(row), script) if row else None
@@ -134,33 +148,21 @@ async def search_verses_by_text(keyword: str, script='latin'):
             rows = await cursor.fetchall()
             return [translate_dict(dict(row), script) for row in rows]
 
-# ==========================================
-# ✨ KUN OYATI UCHUN MAXSUS RO'YXAT (Siz tanlagan oyatlar)
-# ==========================================
 CUSTOM_VERSES = [
-    (1, 1), (1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7), # Fotiha (1)
-    (2, 104), (2, 138), (2, 153), (2, 172), (2, 183), (2, 208), (2, 254), (2, 255), (2, 264), (2, 267), (2, 278), (2, 282), # Baqara (2)
-    (3, 2), (3, 5), (3, 6), (3, 7), (3, 8), (3, 9), (3, 100), (3, 102), (3, 118), (3, 130), (3, 149), (3, 200), # Oli Imron (3)
-    (4, 29), (4, 59), (4, 133), (4, 135), (4, 136), (4, 144), # Niso (4)
-    (5, 1), # Moida (5)
-    (24, 31), # Nur (24)
-    (55, 19), (55, 27), (55, 29), (55, 33), (55, 37), (55, 46), (55, 60) # Ar-Rohman (55)
+    (1, 1), (1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7),
+    (2, 104), (2, 138), (2, 153), (2, 172), (2, 183), (2, 208), (2, 254), (2, 255), (2, 264), (2, 267), (2, 278), (2, 282),
+    (3, 2), (3, 5), (3, 6), (3, 7), (3, 8), (3, 9), (3, 100), (3, 102), (3, 118), (3, 130), (3, 149), (3, 200),
+    (4, 29), (4, 59), (4, 133), (4, 135), (4, 136), (4, 144),
+    (5, 1), (24, 31),
+    (55, 19), (55, 27), (55, 29), (55, 33), (55, 37), (55, 46), (55, 60)
 ]
 
 async def get_random_verse(script='latin'):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        
-        # Toshkent vaqti bilan sanani olamiz. (Bot qayerda ishlashidan qat'iy nazar, 
-        # faqat O'zbekiston tunda soat 00:00 bo'lgandagina kun oyati o'zgaradi).
         now = datetime.datetime.now(ZoneInfo("Asia/Tashkent"))
-        
-        # Bugungi kun tartib raqamini (yilning sanasini) jami oyatlar soniga bo'lamiz
-        # Natijada 1 kun uchun 1 ta o'zgarmas indeks hosil bo'ladi.
         day_index = now.toordinal() % len(CUSTOM_VERSES)
-        
         sura_id, ayah_id = CUSTOM_VERSES[day_index]
-        
         async with db.execute("SELECT * FROM verses WHERE surah_id = ? AND verse_id = ?", (sura_id, ayah_id)) as cursor:
             row = await cursor.fetchone()
             return translate_dict(dict(row), script) if row else None
