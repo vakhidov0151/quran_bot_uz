@@ -37,7 +37,6 @@ async def ensure_user(user_id: int):
             await db.commit()
         except: pass
         try:
-            # Yangi ustun: Qorini saqlash uchun
             await db.execute("ALTER TABLE users ADD COLUMN qari TEXT DEFAULT 'alafasy'")
             await db.commit()
         except: pass
@@ -62,7 +61,6 @@ async def get_user_script(user_id: int) -> str:
     except: pass
     return 'latin'
 
-# --- QORI SOZLAMALARI ---
 async def set_user_qari(user_id: int, qari: str):
     await ensure_user(user_id)
     async with aiosqlite.connect(DB_PATH) as db:
@@ -105,6 +103,22 @@ async def get_verse(surah_id: int, verse_id: int, script='latin'):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT * FROM verses WHERE surah_id = ? AND verse_id = ?", (surah_id, verse_id)) as cursor:
+            row = await cursor.fetchone()
+            return translate_dict(dict(row), script) if row else None
+
+# === YANGI FUNKSIYA: SURA NOMI VA OYAT RAQAMI BO'YICHA QIDIRISH ===
+async def get_verse_by_sura_name(keyword: str, verse_id: int, script='latin'):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        search_word1 = f"%{latin_to_cyrillic(keyword)}%"
+        search_word2 = f"%{keyword}%"
+        # Ikkala yozuvda ham izlaymiz (name_uz yoki surah_name_uz)
+        query = """
+            SELECT * FROM verses 
+            WHERE (surah_name_uz LIKE ? OR surah_name_uz LIKE ? OR name_uz LIKE ? OR name_uz LIKE ?) 
+            AND verse_id = ? LIMIT 1
+        """
+        async with db.execute(query, (search_word1, search_word2, search_word1, search_word2, verse_id)) as cursor:
             row = await cursor.fetchone()
             return translate_dict(dict(row), script) if row else None
 
