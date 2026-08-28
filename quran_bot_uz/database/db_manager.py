@@ -106,11 +106,13 @@ async def get_verse(surah_id: int, verse_id: int, script='latin'):
             row = await cursor.fetchone()
             return translate_dict(dict(row), script) if row else None
 
+# === YANGI FUNKSIYA: SURA NOMI VA OYAT RAQAMI BO'YICHA QIDIRISH ===
 async def get_verse_by_sura_name(keyword: str, verse_id: int, script='latin'):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         search_word1 = f"%{latin_to_cyrillic(keyword)}%"
         search_word2 = f"%{keyword}%"
+        # Ikkala yozuvda ham izlaymiz (name_uz yoki surah_name_uz)
         query = """
             SELECT * FROM verses 
             WHERE (surah_name_uz LIKE ? OR surah_name_uz LIKE ? OR name_uz LIKE ? OR name_uz LIKE ?) 
@@ -135,11 +137,29 @@ async def get_user_location(user_id: int):
 async def get_all_duas(script='latin'):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("CREATE TABLE IF NOT EXISTS duas (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, text_arabic TEXT, text_translit TEXT, text_uzbek TEXT)")
+        
+        count = 0
         async with db.execute("SELECT COUNT(*) FROM duas") as cursor:
-            if (await cursor.fetchone())[0] == 0:
-                await db.execute("INSERT INTO duas (title, text_arabic, text_translit, text_uzbek) VALUES (?, ?, ?, ?)",
-                    ("Rabbano atina", "رَبَّنَا آتِنَا فِي الدُّنْيَا حَسَنَةً وَفِي الْآخِرَةِ حَسَنَةً وَقِنَا عَذَابَ النَّارِ", "Rabbana atina fid-dunya...", "Раббимиз! Бизга бу дунёда..."))
-                await db.commit()
+            count = (await cursor.fetchone())[0]
+            
+        if count < 10:
+            await db.execute("DROP TABLE duas")
+            await db.execute("CREATE TABLE duas (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, text_arabic TEXT, text_translit TEXT, text_uzbek TEXT)")
+            duas_data = [
+                ("Раббана атина", "رَبَّنَا آتِنَا فِي الدُّنْيَا حَسَنَةً وَفِي الْآخِرَةِ حَسَنَةً وَقِنَا عَذَابَ النَّارِ", "Раббана атина фид-дуня ҳасанатан ва фил-ахироти ҳасанатан ва қина азабан-нар.", "Парвардигоро, бизга бу дунёда ҳам, охиратда ҳам яхшиликни бергин ва бизни дўзах олови азобидан сақлагин."),
+                ("Илм сўраш дуоси", "رَبِّ زِدْنِي عِلْمًا", "Робби зидни илман.", "Парвардигорим, илмимни зиёда қилгин."),
+                ("Ота-она ҳаққига дуо", "رَّبِّ ارْحَمْهُمَا كَمَا رَبَّيَانِي صَغِيرًا", "Роббирҳамҳума кама роббаяни соғийро.", "Парвардигорим, мени гўдаклик чоғимда тарбиялаганларидек, Сен ҳам уларга раҳм қилгин."),
+                ("Қалбни ҳидоятда тутиш", "رَبَّنَا لَا تُزِغْ قُلُوبَنَا بَعْدَ إِذْ هَدَيْتَنَا وَهَبْ لَنَا مِن لَّدُنكَ رَحْمَةً ۚ إِنَّكَ أَنتَ الْوَهَّابُ", "Роббана ла тузиғ қулубана баъда из ҳадайтана ва ҳаб лана мин ладунка роҳматан, иннака антал-ваҳҳаб.", "Парвардигоро, бизни ҳидоят қилганингдан кейин дилларимизни ҳақ йўлдан оғдирма ва бизга Ўз ҳузурингдин раҳмат ато эт. Албатта, Сен барча неъматларни ато этгувчисан."),
+                ("Ғам-ташвишдан паноҳ сўраш", "اللَّهُمَّ إِنِّي أَعُوذُ بِكَ مِنَ الْهَمِّ وَالْحَزَنِ", "Аллоҳумма инни аъузу бика минал ҳамми вал ҳазан.", "Ё Аллоҳ, мен Сендан ғам ва қайғудан паноҳ сўрайман."),
+                ("Қарздан қутулиш дуоси", "اللَّهُمَّ اكْفِنِي بِحَلَالِكَ عَنْ حَرَامِكَ وَأَغْنِنِي بِفَضْلِكَ عَمَّنْ سِوَاكَ", "Аллоҳуммакфини биҳалалика ъан ҳаромика ва ағнини бифазлика ъамман сивака.", "Ё Аллоҳ, менга ҳалолинг билан ҳаромингдан кифоя қилгин ва Ўз фазлинг билан мени Ўзингдан бошқалардан беҳожат қилгин."),
+                ("Шифо сўраш дуоси", "أَنِّي مَسَّنِيَ الضُّرُّ وَأَنتَ أَرْحَمُ الرَّاحِمِينَ", "Анни массанияд-дурру ва анта арҳамур-роҳимийн.", "(Парвардигорим), Албатта, менга бало етди. Сен раҳмлиларнинг раҳмлироғисан."),
+                ("Истиғфор (Юнус а.с. дуоси)", "لَّا إِلَهَ إِلَّا أَنتَ سُبْحَانَكَ إِنِّي كُنتُ مِنَ الظَّالِمِينَ", "Ла илаҳа илла анта субҳанака инни кунту миназ-золимийн.", "Сендан ўзга илоҳ йўқ. Сен поксан. Албатта, мен золимлардан бўлдим."),
+                ("Уйга киришда ўқиладиган дуо", "بِسْمِ اللَّهِ وَلَجْنَا، وَبِسْمِ اللَّهِ خَرَجْنَا، وَعَلَى رَبِّنَا تَوَكَّلْنَا", "Бисмиллаҳи валажна, ва бисмиллаҳи харожна, ва ъала Роббина таваккална.", "Аллоҳнинг номи билан кирдик ва Аллоҳнинг номи билан чиқдик ҳамда Роббимизга таваккал қилдик."),
+                ("Сафар дуоси", "سُبْحَانَ الَّذِي سَخَّرَ لَنَا هَذَا وَمَا كُنَّا لَهُ مُقْرِنِينَ وَإِنَّا إِلَى رَبِّنَا لَمُنقَلِبُونَ", "Субҳаналлази саххоро лана ҳаза ва ма кунна лаҳу муқринийн, ва инна ила Роббина ламунқолибун.", "Бизга буни бўйсундириб қўйган Зот покдир. Биз бунга қодир эмас эдик. Ва албатта биз Роббимизга қайтгувчилармиз.")
+            ]
+            await db.executemany("INSERT INTO duas (title, text_arabic, text_translit, text_uzbek) VALUES (?, ?, ?, ?)", duas_data)
+            await db.commit()
+            
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT * FROM duas") as cursor:
             rows = await cursor.fetchall()
@@ -203,6 +223,7 @@ async def get_all_asmaulhusna(script='latin'):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("CREATE TABLE IF NOT EXISTS asma (id INTEGER PRIMARY KEY, arabic TEXT, latin TEXT, uzbek TEXT)")
         
+        # Cursor'ni yopib keyin drop qilish uchun
         count = 0
         async with db.execute("SELECT COUNT(*) FROM asma") as cursor:
             count = (await cursor.fetchone())[0]
