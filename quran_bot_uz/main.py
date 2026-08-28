@@ -7,7 +7,7 @@ import aiosqlite
 import os
 from aiogram import Bot, Dispatcher
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from config import BOT_TOKEN, DB_PATH
+from config import BOT_TOKEN, DB_PATH, USER_DB_PATH
 from handlers import start
 
 logging.basicConfig(level=logging.INFO)
@@ -24,7 +24,7 @@ user_sent_cache = {}
 async def check_and_send_prayer_notifications(bot: Bot):
     # Bu funksiya har daqiqada ishga tushadi, biz endi soatni har bir foydalanuvchining o'z mintaqasiga qarab hisoblaymiz.
     try:
-        async with aiosqlite.connect(DB_PATH) as db:
+        async with aiosqlite.connect(USER_DB_PATH) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute("SELECT user_id, latitude, longitude, script FROM users WHERE latitude IS NOT NULL") as cursor:
                 users = await cursor.fetchall()
@@ -112,7 +112,7 @@ async def check_and_send_juma_notifications(bot: Bot):
     try:
         from database.db_manager import get_random_verse
         
-        async with aiosqlite.connect(DB_PATH) as db:
+        async with aiosqlite.connect(USER_DB_PATH) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute("SELECT user_id, script FROM users") as cursor:
                 users = await cursor.fetchall()
@@ -153,7 +153,8 @@ async def main():
     if not os.path.exists(DB_PATH):
         print(f"DIQQAT: {DB_PATH} fayli topilmadi!")
 
-    async with aiosqlite.connect(DB_PATH) as db:
+    os.makedirs(os.path.dirname(USER_DB_PATH), exist_ok=True)
+    async with aiosqlite.connect(USER_DB_PATH) as db:
         await db.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
