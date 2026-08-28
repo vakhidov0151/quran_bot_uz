@@ -145,7 +145,7 @@ async def prayer_times_handler(message: Message):
     try:
         lat = float(location['latitude'])
         lon = float(location['longitude'])
-        aladhan_url = f"http://api.aladhan.com/v1/timings?latitude={lat}&longitude={lon}&method=99&methodSettings=18,null,15&school=1"
+        aladhan_url = f"http://api.aladhan.com/v1/timings?latitude={lat}&longitude={lon}&method=99&methodSettings=15.5,null,15&school=1"
         
         async with aiohttp.ClientSession() as session:
             async with session.get(aladhan_url, timeout=8) as response:
@@ -194,7 +194,7 @@ async def ramadan_times_handler(message: Message):
     try:
         lat = float(location['latitude'])
         lon = float(location['longitude'])
-        aladhan_url = f"http://api.aladhan.com/v1/timings?latitude={lat}&longitude={lon}&method=99&methodSettings=18,null,15&school=1"
+        aladhan_url = f"http://api.aladhan.com/v1/timings?latitude={lat}&longitude={lon}&method=99&methodSettings=15.5,null,15&school=1"
         
         async with aiohttp.ClientSession() as session:
             async with session.get(aladhan_url, timeout=8) as response:
