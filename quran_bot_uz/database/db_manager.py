@@ -358,9 +358,9 @@ async def get_all_asmaulhusna(script='latin'):
                     (97, "الْوَارِثُ", "Al-Voris", "Barcha narsa foniydir, barcha narsa Unga meros bo'lib qoladi."),
                     (98, "الرَّشِيدُ", "Ar-Rashiyd", "Barcha ishlarni to'g'ri va hikmat bilan boshqaruvchi."),
                     (99, "الصَّبُورُ", "As-Sabur", "Gunohkorlarga jazo berishga shoshilmaydigan, o'ta sabrli.")
-                ]
-                await db.executemany("INSERT INTO asma (id, arabic, latin, uzbek) VALUES (?, ?, ?, ?)", asma_data)
-                await db.commit()
+            ]
+            await db.executemany("INSERT INTO asma (id, arabic, latin, uzbek) VALUES (?, ?, ?, ?)", asma_data)
+            await db.commit()
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT * FROM asma ORDER BY id") as cursor:
             rows = await cursor.fetchall()
