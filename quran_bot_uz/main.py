@@ -22,6 +22,7 @@ location_cache = {}
 user_sent_cache = {}
 
 async def check_and_send_prayer_notifications(bot: Bot):
+    # Bu funksiya har daqiqada ishga tushadi, biz endi soatni har bir foydalanuvchining o'z mintaqasiga qarab hisoblaymiz.
     try:
         async with aiosqlite.connect(DB_PATH) as db:
             db.row_factory = aiosqlite.Row
@@ -40,17 +41,18 @@ async def check_and_send_prayer_notifications(bot: Bot):
 
                 loc_key = f"{round(lat, 2)}_{round(lon, 2)}"
 
+                # Asosiy joriy sanani UTC da olamiz, keshni shu bilan yangilaymiz
                 utc_now = datetime.datetime.now(datetime.timezone.utc)
                 cache_date_str = utc_now.strftime("%d-%m-%Y")
 
                 if loc_key not in location_cache or location_cache[loc_key].get('date') != cache_date_str:
-                    url = f"http://api.aladhan.com/v1/timings?latitude={lat}&longitude={lon}&method=99&methodSettings=18,null,15&school=1"
+                    url = f"http://api.aladhan.com/v1/timings?latitude={lat}&longitude={lon}&method=99&methodSettings=15.5,null,15&school=1"
                     try:
                         async with session.get(url, timeout=5) as response:
                             if response.status == 200:
                                 data = await response.json()
                                 raw_timings = data['data']['timings']
-                                loc_tz = data['data']['meta']['timezone']
+                                loc_tz = data['data']['meta']['timezone'] # 🔥 Asosiy xatolik shu yerda edi (Toshkent vaqti bilan cheklangan)
                                 timings = {k: v.split(" ")[0][:5] for k, v in raw_timings.items()}
                                 
                                 m_time = datetime.datetime.strptime(timings['Maghrib'], "%H:%M")
@@ -74,6 +76,7 @@ async def check_and_send_prayer_notifications(bot: Bot):
                     loc_tz_name = loc_data['timezone']
                     sent_list = user_sent_cache[user_id]['sent']
 
+                    # 🔥 Foydalanuvchining joriy lokal vaqtini aniqlaymiz
                     try:
                         user_now = datetime.datetime.now(ZoneInfo(loc_tz_name))
                         user_current_time = user_now.strftime("%H:%M")
