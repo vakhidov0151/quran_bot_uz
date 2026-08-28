@@ -375,4 +375,273 @@ async def back_to_duas_callback(call: CallbackQuery):
 @router.message(F.text.in_({"🔍 Qidiruv", "🔍 Қидирув"}))
 async def search_prompt_handler(message: Message):
     script = await get_user_script(message.from_user.id)
-    text = "🔍 **Qidiruv**\n\nQidirmoqchi bo'lgan so'zingizni yoki oyat raqamini yuboring (Masalan: _sabr_ yoki _2:255_ yoki _Baqara 255_):
+    text = "🔍 **Qidiruv**\n\nQidirmoqchi bo'lgan so'zingizni yoki oyat raqamini yuboring (Masalan: _sabr_ yoki _2:255_ yoki _Baqara 255_):" if script == 'latin' else "🔍 **Қидирув**\n\nҚидирмоқчи бўлган сўзингизни ёки оят рақамини юборинг (Масалан: _сабр_ ёки _2:255_ ёки _Бақара 255_):"
+    await message.answer(text, parse_mode="Markdown")
+
+@router.message(F.text.in_({"📿 Elektron tasbeh", "📿 Электрон тасбеҳ"}))
+async def tasbih_start_handler(message: Message):
+    script = await get_user_script(message.from_user.id)
+    dhikrs = [{"text": "Субҳаналлоҳ" if script == 'cyrillic' else "Subhanalloh", "limit": 33}, 
+              {"text": "Алҳамдулиллаҳ" if script == 'cyrillic' else "Alhamdulillah", "limit": 33}, 
+              {"text": "Аллоҳу Акбар" if script == 'cyrillic' else "Allohu Akbar", "limit": 34}]
+    btn_sanash = "📿 Санаш" if script == 'cyrillic' else "📿 Sanash"
+    btn_reset = "🔄 Бошидан бошлаш" if script == 'cyrillic' else "🔄 Boshidan boshlash"
+    title_text = "📿 **Электрон тасбеҳ**" if script == 'cyrillic' else "📿 **Elektron tasbeh**"
+    soni_text = "Сони" if script == 'cyrillic' else "Soni"
+    
+    dhikr = dhikrs[0]
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"{btn_sanash} (0)", callback_data="tasbih:0:0")],
+        [InlineKeyboardButton(text=btn_reset, callback_data="tasbih:reset:0")]
+    ])
+    await message.answer(f"{title_text}\n\n👉 **{dhikr['text']}**\n{soni_text}: 0 / {dhikr['limit']}", reply_markup=keyboard, parse_mode="Markdown")
+
+@router.callback_query(F.data.startswith("tasbih:"))
+async def tasbih_callback(call: CallbackQuery):
+    script = await get_user_script(call.from_user.id)
+    dhikrs = [{"text": "Субҳаналлоҳ" if script == 'cyrillic' else "Subhanalloh", "limit": 33}, 
+              {"text": "Алҳамдулиллаҳ" if script == 'cyrillic' else "Alhamdulillah", "limit": 33}, 
+              {"text": "Аллоҳу Акбар" if script == 'cyrillic' else "Allohu Akbar", "limit": 34}]
+    btn_sanash = "📿 Санаш" if script == 'cyrillic' else "📿 Sanash"
+    btn_reset = "🔄 Бошидан бошлаш" if script == 'cyrillic' else "🔄 Boshidan boshlash"
+    title_text = "📿 **Электрон тасбеҳ**" if script == 'cyrillic' else "📿 **Elektron tasbeh**"
+    soni_text = "Сони" if script == 'cyrillic' else "Soni"
+
+    _, dhikr_index, count = call.data.split(":")
+    if dhikr_index == "reset":
+        index, current_count = 0, 0
+    else:
+        index, current_count = int(dhikr_index), int(count) + 1
+        
+    if current_count >= dhikrs[index]['limit']:
+        index, current_count = index + 1, 0
+        if index >= len(dhikrs): index = 0
+            
+    active_dhikr = dhikrs[index]
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"{btn_sanash} ({current_count})", callback_data=f"tasbih:{index}:{current_count}")],
+        [InlineKeyboardButton(text=btn_reset, callback_data="tasbih:reset:0")]
+    ])
+    try:
+        await call.message.edit_text(f"{title_text}\n\n👉 **{active_dhikr['text']}**\n{soni_text}: {current_count} / {active_dhikr['limit']}", reply_markup=keyboard, parse_mode="Markdown")
+    except Exception: pass
+    await call.answer()
+
+@router.message(F.text.in_({"✨ Asmo ul-Husna", "✨ Асмо ул-Ҳусна"}))
+async def asma_menu_handler(message: Message):
+    script = await get_user_script(message.from_user.id)
+    asma_list = await get_all_asmaulhusna(script)
+    
+    msg_text = "✨ **Allohning 99 go'zal ismi (Asmo ul-Husna)**\n\nMarhamat, ismlardan birini tanlang:" if script == 'latin' else "✨ **Аллоҳнинг 99 гўзал исми (Асмо ул-Ҳусна)**\n\nМарҳамат, исмлардан бирини танланг:"
+    await message.answer(msg_text, reply_markup=get_asma_keyboard(asma_list, page=1, script=script), parse_mode="Markdown")
+
+@router.callback_query(F.data.startswith("apage:"))
+async def asma_page_callback(call: CallbackQuery):
+    script = await get_user_script(call.from_user.id)
+    asma_list = await get_all_asmaulhusna(script)
+    page = int(call.data.split(":")[1])
+    
+    try:
+        await call.message.edit_reply_markup(reply_markup=get_asma_keyboard(asma_list, page=page, script=script))
+    except Exception:
+        pass
+    await call.answer()
+
+@router.callback_query(F.data.startswith("asma:"))
+async def asma_detail_callback(call: CallbackQuery):
+    script = await get_user_script(call.from_user.id)
+    asma_id = int(call.data.split(":")[1])
+    asma = await get_asma_by_id(asma_id, script)
+    
+    if asma:
+        text = f"✨ **{asma['id']}. {asma['latin']}**\n\n📝 {asma['arabic']}\n\n🇺🇿 **Ma'nosi:** {asma['uzbek']}" if script == 'latin' else f"✨ **{asma['id']}. {asma['latin']}**\n\n📝 {asma['arabic']}\n\n🇺🇿 **Маъноси:** {asma['uzbek']}"
+        
+        # Calculate which page this name belongs to so we can return to it
+        page = ((asma_id - 1) // 30) + 1
+        
+        btn_back = "🔙 Orqaga" if script == 'latin' else "🔙 Орқага"
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=btn_back, callback_data=f"back_to_asma:{page}")]])
+        await call.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+    await call.answer()
+
+@router.callback_query(F.data.startswith("back_to_asma"))
+async def back_to_asma_callback(call: CallbackQuery):
+    script = await get_user_script(call.from_user.id)
+    asma_list = await get_all_asmaulhusna(script)
+    
+    parts = call.data.split(":")
+    page = int(parts[1]) if len(parts) > 1 else 1
+    
+    msg_text = "✨ **Allohning 99 go'zal ismi (Asmo ul-Husna)**\n\nMarhamat, ismlardan birini tanlang:" if script == 'latin' else "✨ **Аллоҳнинг 99 гўзал исми (Асмо ул-Ҳусна)**\n\nМарҳамат, исмлардан бирини танланг:"
+    await call.message.edit_text(msg_text, reply_markup=get_asma_keyboard(asma_list, page=page, script=script), parse_mode="Markdown")
+    await call.answer()
+
+@router.message(F.text.in_({"🧭 Qibla", "🧭 Қибла"}))
+async def qibla_handler(message: Message):
+    script = await get_user_script(message.from_user.id)
+    location = await get_user_location(message.from_user.id)
+    
+    if not location or not location['latitude']:
+        btn_text = "📍 Joylashuvni jo'natish" if script == 'latin' else "📍 Жойлашувни жўнатиш"
+        back_text = "🔙 Asosiy menyu" if script == 'latin' else "🔙 Асосий меню"
+        kb = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text=btn_text, request_location=True)], [KeyboardButton(text=back_text)]], resize_keyboard=True)
+        msg_text = "Qiblani aniqlash uchun joylashuvingiz kerak.\n\nIltimos, pastdagi **«📍 Joylashuvni jo'natish»** tugmasini bosing." if script == 'latin' else "Қиблани аниқлаш учун жойлашувингиз керак.\n\nИлтимос, пастдаги **«📍 Жойлашувни жўнатиш»** тугмасини босинг."
+        await message.answer(msg_text, reply_markup=kb, parse_mode="Markdown")
+        return
+
+    try:
+        lat = float(location['latitude'])
+        lon = float(location['longitude'])
+        
+        # Ka'ba koordinatalari
+        lat_k = math.radians(21.422487)
+        lon_k = math.radians(39.826206)
+        lat_u = math.radians(lat)
+        lon_u = math.radians(lon)
+
+        y = math.sin(lon_k - lon_u)
+        x = math.cos(lat_u) * math.tan(lat_k) - math.sin(lat_u) * math.cos(lon_k - lon_u)
+
+        qibla = math.degrees(math.atan2(y, x))
+        qibla = (qibla + 360) % 360
+        
+        qibla_link = "https://qiblafinder.withgoogle.com/"
+        
+        if script == 'latin':
+            text = (f"🧭 **Qibla yo'nalishi**\n\n"
+                    f"Sizning joylashuvingiz bo'yicha Qibla (Ka'ba) yo'nalishi Shimoldan soat mili bo'ylab taxminan **{qibla:.1f}°** gradusda joylashgan.\n\n"
+                    f"📱 Aniqroq ko'rish uchun maxsus 3D xaritadan foydalaning:\n👉 [Qibla Finder Google]({qibla_link})")
+        else:
+            text = (f"🧭 **Қибла йўналиши**\n\n"
+                    f"Сизнинг жойлашувингиз бўйича Қибла (Каъба) йўналиши Шимолдан соат мили бўйлаб тахминан **{qibla:.1f}°** градусда жойлашган.\n\n"
+                    f"📱 Аниқроқ кўриш учун махсус 3D харитадан фойдаланинг:\n👉 [Qibla Finder Google]({qibla_link})")
+            
+        await message.answer(text, parse_mode="Markdown", disable_web_page_preview=True)
+    except Exception as e:
+        await message.answer(f"Xatolik: {e}")
+
+# === AQLLI QIDIRUV (2:255 yeki Baqara 255) ===
+@router.message(F.text & ~F.text.in_({"📖 Qur'on o'qish va tinglash", "📖 Қуръон ўқиш ва тинглаш", "🕌 Namoz vaqtlari", "🕌 Намоз вақтлари", "✨ Kun oyati", "✨ Кун ояти", "🤲 Duolar", "🤲 Дуолар", "🧭 Qibla", "🧭 Қибла", "✨ Asmo ul-Husna", "✨ Асмо ул-Ҳусна", "🔍 Qidiruv", "🔍 Қидирув", "📿 Elektron tasbeh", "📿 Электрон тасбеҳ", "🔙 Asosiy menyu", "🔙 Асосий меню", "⚙️ Sozlamalar", "⚙️ Созламалар"}))
+async def search_verses_handler(message: Message):
+    try:
+        keyword = message.text.strip()
+        if len(keyword) < 2: return
+            
+        script = await get_user_script(message.from_user.id)
+        
+        # 1-QADAM: Raqamlar orqali tekshirish (masalan: 2:255, 2 255, 2.255)
+        m1 = re.match(r"^(\d+)(?:\s+|:|\.|-)+(\d+)$", keyword)
+        # 2-QADAM: Sura nomi orqali tekshirish (masalan: baqara 255, fotiha 7)
+        m2 = re.match(r"^([^\d]+)(?:\s+|:|\.|-)+(\d+)$", keyword)
+        
+        verse = None
+        surah_id, verse_id = 0, 0
+        
+        if m1:
+            surah_id = int(m1.group(1))
+            verse_id = int(m1.group(2))
+            verse = await get_verse(surah_id, verse_id, script)
+        elif m2:
+            s_name = m2.group(1).strip()
+            verse_id = int(m2.group(2))
+            verse = await get_verse_by_sura_name(s_name, verse_id, script)
+            if verse:
+                surah_id = verse.get('surah_id', 0)
+        
+        # Agar "2:255" tipida topilsa, chiroyli qilib audiosi bilan birga chiqaramiz
+        if verse:
+            sura_text, oyat_text = ("surasi", "oyat") if script == 'latin' else ("сураси", "оят")
+            name = verse.get('surah_name_uz', verse.get('name_uz', ''))
+            v_id = verse.get('verse_id', verse.get('id', ''))
+            ar = verse.get('text_arabic', verse.get('arabic', ''))
+            uz = verse.get('text_uzbek', verse.get('uzbek', verse.get('text', '')))
+            
+            text = f"📖 **{name} {sura_text}, {v_id}-{oyat_text}**\n\n📝 {ar}\n\n🇺🇿 {uz}"
+            
+            btn_text = "▶️ Oyatni tinglash" if script == 'latin' else "▶️ Оятни тинглаш"
+            kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=btn_text, callback_data=f"play_audio:{surah_id}:{v_id}")]])
+            
+            await message.answer(text, reply_markup=kb, parse_mode="Markdown")
+            return
+            
+        # Agar format "2:255" bo'lmasa, unda oddiy so'zma-so'z izlashga o'tadi
+        verses = await search_verses_by_text(keyword, script)
+        if not verses:
+            verses = await search_verses_by_text(keyword.lower(), script)
+            if not verses:
+                verses = await search_verses_by_text(keyword.capitalize(), script)
+        
+        if not verses:
+            msg = f"«{keyword}» bo'yicha hech narsa topilmadi." if script == 'latin' else f"«{keyword}» бўйича ҳеч нарса топилмади."
+            await message.answer(msg)
+            return
+            
+        text = f"🔍 **Natijalar ({len(verses)} ta):**\n\n" if script == 'latin' else f"🔍 **Натижалар ({len(verses)} та):**\n\n"
+        oyat_text = "oyat" if script == 'latin' else "оят"
+        
+        for v in verses:
+            name = v.get('surah_name_uz', v.get('name_uz', 'Sura'))
+            v_id = v.get('verse_id', v.get('id', 0))
+            uz_text = v.get('text_uzbek', v.get('uzbek', v.get('text', '')))
+            text += f"📖 **{name}, {v_id}-{oyat_text}**\n{uz_text}\n\n---\n"
+            
+        if len(text) > 4000:
+            text = text[:4000] + "...\n(Ko'p natija topildi / Кўп натижа топилди)"
+            
+        await message.answer(text, parse_mode="Markdown")
+    except Exception as e:
+        await message.answer(f"Xatolik (Qidiruv): {e}")
+
+# === ZAKOT KALKULYATORI ===
+
+class ZakatState(StatesGroup):
+    waiting_for_wealth = State()
+
+@router.message(F.text.in_({"💰 Zakot kalkulyatori", "💰 Закот калькулятори"}))
+async def zakat_start(message: Message, state: FSMContext):
+    script = await get_user_script(message.from_user.id)
+    text = ("💰 **Zakot kalkulyatori**\n\n"
+            "Zakot — Islomning besh arkonidan biri. Zakot berish uchun boyligingiz nisob miqdoriga yetgan bo'lishi kerak. "
+            "(Nisob — taxminan 85 gramm tilla yoki shunga teng mablag').\n\n"
+            "Iltimos, o'zingizdagi barcha jami boylikni (naqd pul, bankdagi pul, sotiladigan mollar, tilla va kumushlar qiymati) "
+            "**so'mda** raqamlar bilan kiriting.\n"
+            "_(Masalan: 50000000)_") if script == 'latin' else ("💰 **Закот калькулятори**\n\n"
+            "Закот — Исломнинг беш арконидан бири. Закот бериш учун бойлигингиз нисоб миқдорига етган бўлиши керак. "
+            "(Нисоб — тахминан 85 грамм тилла ёки шунга тенг маблағ).\n\n"
+            "Илтимос, ўзингиздаги барча жами бойликни (нақд пул, банкдаги пул, сотиладиган моллар, тилла ва кумушлар қиймати) "
+            "**сўмда** рақамлар билан киритинг.\n"
+            "_(Масалан: 50000000)_")
+    await message.answer(text, parse_mode="Markdown")
+    await state.set_state(ZakatState.waiting_for_wealth)
+
+@router.message(ZakatState.waiting_for_wealth)
+async def zakat_calculate(message: Message, state: FSMContext):
+    script = await get_user_script(message.from_user.id)
+    text = message.text.replace(" ", "").replace(",", "").replace(".", "")
+    
+    if not text.isdigit():
+        err = "❌ Iltimos, faqat raqam kiriting:\n(Bosh menyuga qaytish uchun 🔙 Asosiy menyu tugmasini bosing)" if script == 'latin' else "❌ Илтимос, фақат рақам киритинг:\n(Бош менюга қайтиш учун 🔙 Асосий меню тугмасини босинг)"
+        await message.answer(err)
+        return
+        
+    wealth = int(text)
+    zakat_amount = wealth / 40  # 2.5%
+    
+    formatted_wealth = "{:,}".format(wealth).replace(",", " ")
+    formatted_zakat = "{:,}".format(int(zakat_amount)).replace(",", " ")
+    
+    if script == 'latin':
+        res = (f"📊 **Natija:**\n\n"
+               f"Siz kiritgan umumiy mablag': **{formatted_wealth} so'm**\n"
+               f"Agar ushbu mablag' nisobga yetgan bo'lsa va unga egalik qilganingizga 1 qamariy yil (354 kun) to'lgan bo'lsa, sizning zakot miqdoringiz:\n\n"
+               f"💰 **{formatted_zakat} so'm** (2.5%) bo'ladi.\n\n"
+               f"_Eslatma: Zakot miqdorini aniq belgilash va o'sha yilgi nisob miqdorini bilish uchun O'zbekiston Musulmonlari Idorasi fatvolariga tayanishingiz tavsiya etiladi._")
+    else:
+        res = (f"📊 **Натижа:**\n\n"
+               f"Сиз киритган умумий маблағ: **{formatted_wealth} сўм**\n"
+               f"Агар ушбу маблағ нисобга етган бўлса ва унга эгалик қилганингизга 1 қамарий йил (354 кун) тўлган бўлса, сизнинг закот миқдорингиз:\n\n"
+               f"💰 **{formatted_zakat} сўм** (2.5%) бўлади.\n\n"
+               f"_Эслатма: Закот миқдорини аниқ белгилаш ва ўша йилги нисоб миқдорини билиш учун Ўзбекистон Мусулмонлари Идораси фатволарига таянишингиз тавсия этилади._")
+               
+    await message.answer(res, parse_mode="Markdown", reply_markup=get_main_keyboard(script))
+    await state.clear()
