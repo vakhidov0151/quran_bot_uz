@@ -214,7 +214,7 @@ async def daily_verse_handler(message: Message):
         text = f"{title}\n\n📖 **{name} {sura_text}, {v_id}-{oyat_text}**\n\n📝 {ar}\n\n🇺🇿 {uz}"
         await message.answer(text, parse_mode="Markdown")
 
-@router.message(F.text.in_({"📖 Qur'on o'qish va tinglash", "📖 Қуръон ўқиш ва тинглаш"}))
+@router.message(F.text.in_({"📖 Qur'on o'qish va tinglash", "📖 Қуръон ўқиш va tinglash"}))
 async def quran_read_handler(message: Message):
     script = await get_user_script(message.from_user.id)
     surahs = await get_all_surahs(script)
@@ -521,7 +521,7 @@ async def qibla_handler(message: Message):
         await message.answer(f"Xatolik: {e}")
 
 # === AQLLI QIDIRUV (2:255 yeki Baqara 255) ===
-@router.message(F.text & ~F.text.in_({"📖 Qur'on o'qish va tinglash", "📖 Қуръон ўқиш ва тинглаш", "🕌 Namoz vaqtlari", "🕌 Намоз вақтлари", "✨ Kun oyati", "✨ Кун ояти", "🤲 Duolar", "🤲 Дуолар", "🧭 Qibla", "🧭 Қибла", "✨ Asmo ul-Husna", "✨ Асмо ул-Ҳусна", "🔍 Qidiruv", "🔍 Қидирув", "📿 Elektron tasbeh", "📿 Электрон тасбеҳ", "🔙 Asosiy menyu", "🔙 Асосий меню", "⚙️ Sozlamalar", "⚙️ Созламалар"}))
+@router.message(F.text & ~F.text.in_({"📖 Qur'on o'qish va tinglash", "📖 Қуръон ўқиш ва тинглаш", "🕌 Namoz vaqtlari", "🕌 Намоз вақтлари", "✨ Kun oyati", "✨ Кун ояти", "🤲 Duolar", "🤲 Дуолар", "🧭 Qibla", "🧭 Қибла", "✨ Asmo ul-Husna", "✨ Асмо ул-Ҳусна", "🔍 Qidiruv", "🔍 Қидирув", "📿 Elektron tasbeh", "📿 Электрон тасбеҳ", "🔙 Asosiy menyu", "🔙 Асосий меню", "⚙️ Sozlamalar", "⚙️ Созламалар", "💰 Zakot kalkulyatori", "💰 Закот калькулятори"}))
 async def search_verses_handler(message: Message):
     try:
         keyword = message.text.strip()
