@@ -214,7 +214,7 @@ async def daily_verse_handler(message: Message):
         text = f"{title}\n\n📖 **{name} {sura_text}, {v_id}-{oyat_text}**\n\n📝 {ar}\n\n🇺🇿 {uz}"
         await message.answer(text, parse_mode="Markdown")
 
-@router.message(F.text.in_({"📖 Qur'on o'qish va tinglash", "📖 Қуръон ўқиш va tinglash"}))
+@router.message(F.text.in_({"📖 Qur'on o'qish va tinglash", "📖 Қуръон ўқиш ва тинглаш"}))
 async def quran_read_handler(message: Message):
     script = await get_user_script(message.from_user.id)
     surahs = await get_all_surahs(script)
