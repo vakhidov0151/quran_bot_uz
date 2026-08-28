@@ -520,6 +520,60 @@ async def qibla_handler(message: Message):
     except Exception as e:
         await message.answer(f"Xatolik: {e}")
 
+# === ZAKOT KALKULYATORI ===
+
+class ZakatState(StatesGroup):
+    waiting_for_wealth = State()
+
+@router.message(F.text.in_({"💰 Zakot kalkulyatori", "💰 Закот калькулятори"}))
+async def zakat_start(message: Message, state: FSMContext):
+    script = await get_user_script(message.from_user.id)
+    text = ("💰 **Zakot kalkulyatori**\n\n"
+            "Zakot — Islomning besh arkonidan biri. Zakot berish uchun boyligingiz nisob miqdoriga yetgan bo'lishi kerak. "
+            "(Nisob — taxminan 85 gramm tilla yoki shunga teng mablag').\n\n"
+            "Iltimos, o'zingizdagi barcha jami boylikni (naqd pul, bankdagi pul, sotiladigan mollar, tilla va kumushlar qiymati) "
+            "**so'mda** raqamlar bilan kiriting.\n"
+            "_(Masalan: 50000000)_") if script == 'latin' else ("💰 **Закот калькулятори**\n\n"
+            "Закот — Исломнинг беш арконидан бири. Закот бериш учун бойлигингиз нисоб миқдорига етган бўлиши керак. "
+            "(Нисоб — тахминан 85 грамм тилла ёки шунга тенг маблағ).\n\n"
+            "Илтимос, ўзингиздаги барча жами бойликни (нақд пул, банкдаги пул, сотиладиган моллар, тилла ва кумушлар қиймати) "
+            "**сўмда** рақамлар билан киритинг.\n"
+            "_(Масалан: 50000000)_")
+    await message.answer(text, parse_mode="Markdown")
+    await state.set_state(ZakatState.waiting_for_wealth)
+
+@router.message(ZakatState.waiting_for_wealth)
+async def zakat_calculate(message: Message, state: FSMContext):
+    script = await get_user_script(message.from_user.id)
+    text = message.text.replace(" ", "").replace(",", "").replace(".", "")
+    
+    if not text.isdigit():
+        err = "❌ Iltimos, faqat raqam kiriting:\n(Bosh menyuga qaytish uchun 🔙 Asosiy menyu tugmasini bosing)" if script == 'latin' else "❌ Илтимос, фақат рақам киритинг:\n(Бош менюга қайтиш учун 🔙 Асосий меню тугмасини босинг)"
+        await message.answer(err)
+        return
+        
+    wealth = int(text)
+    zakat_amount = wealth / 40  # 2.5%
+    
+    formatted_wealth = "{:,}".format(wealth).replace(",", " ")
+    formatted_zakat = "{:,}".format(int(zakat_amount)).replace(",", " ")
+    
+    if script == 'latin':
+        res = (f"📊 **Natija:**\n\n"
+               f"Siz kiritgan umumiy mablag': **{formatted_wealth} so'm**\n"
+               f"Agar ushbu mablag' nisobga yetgan bo'lsa va unga egalik qilganingizga 1 qamariy yil (354 kun) to'lgan bo'lsa, sizning zakot miqdoringiz:\n\n"
+               f"💰 **{formatted_zakat} so'm** (2.5%) bo'ladi.\n\n"
+               f"_Eslatma: Zakot miqdorini aniq belgilash va o'sha yilgi nisob miqdorini bilish uchun O'zbekiston Musulmonlari Idorasi fatvolariga tayanishingiz tavsiya etiladi._")
+    else:
+        res = (f"📊 **Натижа:**\n\n"
+               f"Сиз киритган умумий маблағ: **{formatted_wealth} сўм**\n"
+               f"Агар ушбу маблағ нисобга етган бўлса ва унга эгалик қилганингизга 1 қамарий йил (354 кун) тўлган бўлса, сизнинг закот миқдорингиз:\n\n"
+               f"💰 **{formatted_zakat} сўм** (2.5%) бўлади.\n\n"
+               f"_Эслатма: Закот миқдорини аниқ белгилаш ва ўша йилги нисоб миқдорини билиш учун Ўзбекистон Мусулмонлари Идораси фатволарига таянишингиз тавсия этилади._")
+               
+    await message.answer(res, parse_mode="Markdown", reply_markup=get_main_keyboard(script))
+    await state.clear()
+
 # === AQLLI QIDIRUV (2:255 yeki Baqara 255) ===
 @router.message(F.text & ~F.text.in_({"📖 Qur'on o'qish va tinglash", "📖 Қуръон ўқиш ва тинглаш", "🕌 Namoz vaqtlari", "🕌 Намоз вақтлари", "✨ Kun oyati", "✨ Кун ояти", "🤲 Duolar", "🤲 Дуолар", "🧭 Qibla", "🧭 Қибла", "✨ Asmo ul-Husna", "✨ Асмо ул-Ҳусна", "🔍 Qidiruv", "🔍 Қидирув", "📿 Elektron tasbeh", "📿 Электрон тасбеҳ", "🔙 Asosiy menyu", "🔙 Асосий меню", "⚙️ Sozlamalar", "⚙️ Созламалар", "💰 Zakot kalkulyatori", "💰 Закот калькулятори"}))
 async def search_verses_handler(message: Message):
@@ -591,57 +645,3 @@ async def search_verses_handler(message: Message):
         await message.answer(text, parse_mode="Markdown")
     except Exception as e:
         await message.answer(f"Xatolik (Qidiruv): {e}")
-
-# === ZAKOT KALKULYATORI ===
-
-class ZakatState(StatesGroup):
-    waiting_for_wealth = State()
-
-@router.message(F.text.in_({"💰 Zakot kalkulyatori", "💰 Закот калькулятори"}))
-async def zakat_start(message: Message, state: FSMContext):
-    script = await get_user_script(message.from_user.id)
-    text = ("💰 **Zakot kalkulyatori**\n\n"
-            "Zakot — Islomning besh arkonidan biri. Zakot berish uchun boyligingiz nisob miqdoriga yetgan bo'lishi kerak. "
-            "(Nisob — taxminan 85 gramm tilla yoki shunga teng mablag').\n\n"
-            "Iltimos, o'zingizdagi barcha jami boylikni (naqd pul, bankdagi pul, sotiladigan mollar, tilla va kumushlar qiymati) "
-            "**so'mda** raqamlar bilan kiriting.\n"
-            "_(Masalan: 50000000)_") if script == 'latin' else ("💰 **Закот калькулятори**\n\n"
-            "Закот — Исломнинг беш арконидан бири. Закот бериш учун бойлигингиз нисоб миқдорига етган бўлиши керак. "
-            "(Нисоб — тахминан 85 грамм тилла ёки шунга тенг маблағ).\n\n"
-            "Илтимос, ўзингиздаги барча жами бойликни (нақд пул, банкдаги пул, сотиладиган моллар, тилла ва кумушлар қиймати) "
-            "**сўмда** рақамлар билан киритинг.\n"
-            "_(Масалан: 50000000)_")
-    await message.answer(text, parse_mode="Markdown")
-    await state.set_state(ZakatState.waiting_for_wealth)
-
-@router.message(ZakatState.waiting_for_wealth)
-async def zakat_calculate(message: Message, state: FSMContext):
-    script = await get_user_script(message.from_user.id)
-    text = message.text.replace(" ", "").replace(",", "").replace(".", "")
-    
-    if not text.isdigit():
-        err = "❌ Iltimos, faqat raqam kiriting:\n(Bosh menyuga qaytish uchun 🔙 Asosiy menyu tugmasini bosing)" if script == 'latin' else "❌ Илтимос, фақат рақам киритинг:\n(Бош менюга қайтиш учун 🔙 Асосий меню тугмасини босинг)"
-        await message.answer(err)
-        return
-        
-    wealth = int(text)
-    zakat_amount = wealth / 40  # 2.5%
-    
-    formatted_wealth = "{:,}".format(wealth).replace(",", " ")
-    formatted_zakat = "{:,}".format(int(zakat_amount)).replace(",", " ")
-    
-    if script == 'latin':
-        res = (f"📊 **Natija:**\n\n"
-               f"Siz kiritgan umumiy mablag': **{formatted_wealth} so'm**\n"
-               f"Agar ushbu mablag' nisobga yetgan bo'lsa va unga egalik qilganingizga 1 qamariy yil (354 kun) to'lgan bo'lsa, sizning zakot miqdoringiz:\n\n"
-               f"💰 **{formatted_zakat} so'm** (2.5%) bo'ladi.\n\n"
-               f"_Eslatma: Zakot miqdorini aniq belgilash va o'sha yilgi nisob miqdorini bilish uchun O'zbekiston Musulmonlari Idorasi fatvolariga tayanishingiz tavsiya etiladi._")
-    else:
-        res = (f"📊 **Натижа:**\n\n"
-               f"Сиз киритган умумий маблағ: **{formatted_wealth} сўм**\n"
-               f"Агар ушбу маблағ нисобга етган бўлса ва унга эгалик қилганингизга 1 қамарий йил (354 кун) тўлган бўлса, сизнинг закот миқдорингиз:\n\n"
-               f"💰 **{formatted_zakat} сўм** (2.5%) бўлади.\n\n"
-               f"_Эслатма: Закот миқдорини аниқ белгилаш ва ўша йилги нисоб миқдорини билиш учун Ўзбекистон Мусулмонлари Идораси фатволарига таянишингиз тавсия этилади._")
-               
-    await message.answer(res, parse_mode="Markdown", reply_markup=get_main_keyboard(script))
-    await state.clear()
