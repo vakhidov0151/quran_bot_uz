@@ -1,7 +1,7 @@
 import aiosqlite
 import datetime
 from zoneinfo import ZoneInfo
-from config import DB_PATH
+from config import DB_PATH, USER_DB_PATH
 
 def cyrillic_to_latin(text: str) -> str:
     if not text: return ""
@@ -31,7 +31,7 @@ def latin_to_cyrillic(text: str) -> str:
     return "".join(result)
 
 async def ensure_user(user_id: int):
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with aiosqlite.connect(USER_DB_PATH) as db:
         try:
             await db.execute("ALTER TABLE users ADD COLUMN script TEXT DEFAULT 'latin'")
             await db.commit()
@@ -48,28 +48,37 @@ async def ensure_user(user_id: int):
 
 async def set_user_script(user_id: int, script: str):
     await ensure_user(user_id)
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with aiosqlite.connect(USER_DB_PATH) as db:
         await db.execute("UPDATE users SET script = ? WHERE user_id = ?", (script, user_id))
         await db.commit()
 
 async def get_user_script(user_id: int) -> str:
     try:
-        async with aiosqlite.connect(DB_PATH) as db:
+        async with aiosqlite.connect(USER_DB_PATH) as db:
             async with db.execute("SELECT script FROM users WHERE user_id = ?", (user_id,)) as cursor:
                 row = await cursor.fetchone()
                 if row and row[0]: return row[0]
     except: pass
     return 'latin'
 
+async def get_users_count() -> int:
+    try:
+        async with aiosqlite.connect(USER_DB_PATH) as db:
+            async with db.execute("SELECT COUNT(*) FROM users") as cursor:
+                row = await cursor.fetchone()
+                return row[0] if row else 0
+    except:
+        return 0
+
 async def set_user_qari(user_id: int, qari: str):
     await ensure_user(user_id)
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with aiosqlite.connect(USER_DB_PATH) as db:
         await db.execute("UPDATE users SET qari = ? WHERE user_id = ?", (qari, user_id))
         await db.commit()
 
 async def get_user_qari(user_id: int) -> str:
     try:
-        async with aiosqlite.connect(DB_PATH) as db:
+        async with aiosqlite.connect(USER_DB_PATH) as db:
             async with db.execute("SELECT qari FROM users WHERE user_id = ?", (user_id,)) as cursor:
                 row = await cursor.fetchone()
                 if row and row[0]: return row[0]
@@ -122,17 +131,35 @@ async def get_verse_by_sura_name(keyword: str, verse_id: int, script='latin'):
             row = await cursor.fetchone()
             return translate_dict(dict(row), script) if row else None
 
-async def save_user_location(user_id: int, lat: float, lon: float):
+async def save_user_location(user_id: int, latitude: float, longitude: float):
     await ensure_user(user_id)
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("UPDATE users SET latitude = ?, longitude = ? WHERE user_id = ?", (lat, lon, user_id))
+    async with aiosqlite.connect(USER_DB_PATH) as db:
+        await db.execute(
+            "UPDATE users SET latitude = ?, longitude = ? WHERE user_id = ?",
+            (latitude, longitude, user_id)
+        )
         await db.commit()
 
 async def get_user_location(user_id: int):
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute("SELECT latitude, longitude FROM users WHERE user_id = ?", (user_id,)) as cursor:
-            return await cursor.fetchone()
+    try:
+        async with aiosqlite.connect(USER_DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute("SELECT latitude, longitude FROM users WHERE user_id = ?", (user_id,)) as cursor:
+                row = await cursor.fetchone()
+                return dict(row) if row and row['latitude'] else None
+    except:
+        return None
+
+async def get_all_users_locations():
+    try:
+        async with aiosqlite.connect(USER_DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute("SELECT user_id, latitude, longitude FROM users WHERE latitude IS NOT NULL") as cursor:
+                rows = await cursor.fetchall()
+                return [dict(r) for r in rows]
+    except Exception as e:
+        print(f"Baza xatosi: {e}")
+        return []
 
 async def get_all_duas(script='latin'):
     async with aiosqlite.connect(DB_PATH) as db:
@@ -332,8 +359,8 @@ async def get_all_asmaulhusna(script='latin'):
                     (98, "الرَّشِيدُ", "Ar-Rashiyd", "Barcha ishlarni to'g'ri va hikmat bilan boshqaruvchi."),
                     (99, "الصَّبُورُ", "As-Sabur", "Gunohkorlarga jazo berishga shoshilmaydigan, o'ta sabrli.")
                 ]
-            await db.executemany("INSERT INTO asma (id, arabic, latin, uzbek) VALUES (?, ?, ?, ?)", asma_data)
-            await db.commit()
+                await db.executemany("INSERT INTO asma (id, arabic, latin, uzbek) VALUES (?, ?, ?, ?)", asma_data)
+                await db.commit()
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT * FROM asma ORDER BY id") as cursor:
             rows = await cursor.fetchall()
