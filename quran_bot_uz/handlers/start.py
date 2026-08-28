@@ -178,6 +178,68 @@ async def prayer_times_handler(message: Message):
     except Exception as e:
         await message.answer(f"Xatolik: {e}")
 
+@router.message(F.text.in_({"🌙 Saharlik / Iftorlik", "🌙 Саҳарлик / Ифторлик"}))
+async def ramadan_times_handler(message: Message):
+    script = await get_user_script(message.from_user.id)
+    location = await get_user_location(message.from_user.id)
+    
+    if not location or not location['latitude']:
+        btn_text = "📍 Joylashuvni jo'natish" if script == 'latin' else "📍 Жойлашувни жўнатиш"
+        back_text = "🔙 Asosiy menyu" if script == 'latin' else "🔙 Асосий меню"
+        kb = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text=btn_text, request_location=True)], [KeyboardButton(text=back_text)]], resize_keyboard=True)
+        msg_text = "Saharlik va Iftorlik vaqtlarini bilish uchun joylashuvingiz kerak.\n\nIltimos, pastdagi **«📍 Joylashuvni jo'natish»** tugmasini bosing." if script == 'latin' else "Саҳарлик ва Ифторлик вақтларини билиш учун жойлашувингиз керак.\n\nИлтимос, пастдаги **«📍 Жойлашувни жўнатиш»** тугмасини босинг."
+        await message.answer(msg_text, reply_markup=kb, parse_mode="Markdown")
+        return
+
+    try:
+        lat = float(location['latitude'])
+        lon = float(location['longitude'])
+        aladhan_url = f"http://api.aladhan.com/v1/timings?latitude={lat}&longitude={lon}&method=99&methodSettings=18,null,15&school=1"
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(aladhan_url, timeout=8) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    raw_timings = data['data']['timings']
+                    timings = {k: v.split(" ")[0][:5] for k, v in raw_timings.items()}
+                    
+                    m_time = datetime.datetime.strptime(timings['Maghrib'], "%H:%M")
+                    m_time += datetime.timedelta(minutes=5)
+                    iftorlik_time = m_time.strftime("%H:%M")
+                    saharlik_time = timings['Imsak']
+                    
+                    h_date = data['data']['date']['hijri']
+                    
+                    if script == 'latin':
+                        text = (f"🌙 **Saharlik va Iftorlik vaqtlari**\n"
+                                f"📍 Joylashuvingiz bo'yicha\n"
+                                f"🗓 {data['data']['date']['readable']} ({h_date['day']} {h_date['month']['en']}, {h_date['year']})\n\n"
+                                f"🌅 **Saharlik (Imsak/Ro'za yopish):** {saharlik_time}\n"
+                                f"🌆 **Iftorlik (Shom/Og'iz ochish):** {iftorlik_time}\n\n"
+                                f"🤲 **Saharlik (Ro'za tutish) duosi:**\n"
+                                f"Navaytu an asuma sovma shahri ramazona minal fajri ilal mag'ribi, xolisan lillahi ta'ala. Allohu akbar.\n"
+                                f"_Ma'nosi: Ramazon oyining ro'zasini subhdan to kun botguncha xolis Alloh taolo uchun tutishni niyat qildim. Alloh buyukdir._\n\n"
+                                f"🤲 **Iftorlik (Og'iz ochish) duosi:**\n"
+                                f"Allohumma laka sumtu va bika aamantu va a'layka tavakkaltu va a'laa rizqika aftartu, fag'firliy ma qoddamtu va maa axxortu. Birahmatika ya arhamar rohiymiyn.\n"
+                                f"_Ma'nosi: Ey Alloh, ushbu ro'zamni Sen uchun tutdim va Senga iymon keltirdim va Senga tavakkal qildim va bergan rizqing bilan iftor qildim. Ey mehribonlarning eng mehriboni, mening avvalgi va keyingi gunohlarimni mag'firat qilgil._")
+                    else:
+                        text = (f"🌙 **Саҳарлик ва Ифторлик вақтлари**\n"
+                                f"📍 Жойлашувингиз бўйича\n"
+                                f"🗓 {data['data']['date']['readable']} ({h_date['day']} {h_date['month']['en']}, {h_date['year']})\n\n"
+                                f"🌅 **Саҳарлик (Имсак/Рўза ёпиш):** {saharlik_time}\n"
+                                f"🌆 **Ифторлик (Шом/Оғиз очиш):** {iftorlik_time}\n\n"
+                                f"🤲 **Саҳарлик (Рўза тутиш) дуоси:**\n"
+                                f"Навайту ан асума совма шаҳри рамазона минал фажри илал мағриби, холисан лиллаҳи таъала. Аллоҳу акбар.\n"
+                                f"_Маъноси: Рамазон ойининг рўзасини субҳдан то кун ботгунча холис Аллоҳ таоло учун тутишни ният қилдим. Аллоҳ буюкдир._\n\n"
+                                f"🤲 **Ифторлик (Оғиз очиш) дуоси:**\n"
+                                f"Аллоҳумма лака сумту ва бика ааманту ва аълайка таваккалту ва аълаа ризқика афтарту, фағфирлий ма қоддамту ва маа аххорту. Бироҳматика я арҳамар роҳимийн.\n"
+                                f"_Маъноси: Эй Аллоҳ, ушбу рўзамни Сен учун тутдим ва Сенга иймон келтирдим ва Сенга таваккал қилдим ва берган ризқинг билан ифтор қилдим. Эй меҳрибонларнинг энг меҳрибони, менинг аввалги ва кейинги гуноҳларимни мағфират қилгил._")
+                    await message.answer(text, parse_mode="Markdown")
+                else:
+                    await message.answer("API serverida xatolik yuz berdi." if script == 'latin' else "API серверида хатолик юз берди.")
+    except Exception as e:
+        await message.answer(f"Xatolik: {e}")
+
 @router.message(Command("testdb"))
 async def test_db_handler(message: Message):
     import aiosqlite
@@ -575,7 +637,7 @@ async def zakat_calculate(message: Message, state: FSMContext):
     await state.clear()
 
 # === AQLLI QIDIRUV (2:255 yeki Baqara 255) ===
-@router.message(F.text & ~F.text.in_({"📖 Qur'on o'qish va tinglash", "📖 Қуръон ўқиш ва тинглаш", "🕌 Namoz vaqtlari", "🕌 Намоз вақтлари", "✨ Kun oyati", "✨ Кун ояти", "🤲 Duolar", "🤲 Дуолар", "🧭 Qibla", "🧭 Қибла", "✨ Asmo ul-Husna", "✨ Асмо ул-Ҳусна", "🔍 Qidiruv", "🔍 Қидирув", "📿 Elektron tasbeh", "📿 Электрон тасбеҳ", "🔙 Asosiy menyu", "🔙 Асосий меню", "⚙️ Sozlamalar", "⚙️ Созламалар", "💰 Zakot kalkulyatori", "💰 Закот калькулятори"}))
+@router.message(F.text & ~F.text.in_({"📖 Qur'on o'qish va tinglash", "📖 Қуръон ўқиш ва тинглаш", "🕌 Namoz vaqtlari", "🕌 Намоз вақтлари", "🌙 Saharlik / Iftorlik", "🌙 Саҳарлик / Ифторлик", "✨ Kun oyati", "✨ Кун ояти", "🤲 Duolar", "🤲 Дуолар", "🧭 Qibla", "🧭 Қибла", "✨ Asmo ul-Husna", "✨ Асмо ул-Ҳусна", "🔍 Qidiruv", "🔍 Қидирув", "📿 Elektron tasbeh", "📿 Электрон тасбеҳ", "🔙 Asosiy menyu", "🔙 Асосий меню", "⚙️ Sozlamalar", "⚙️ Созламалар", "💰 Zakot kalkulyatori", "💰 Закот калькулятори"}))
 async def search_verses_handler(message: Message):
     try:
         keyword = message.text.strip()
