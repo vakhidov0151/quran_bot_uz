@@ -609,12 +609,26 @@ async def zakat_calculate(message: Message, state: FSMContext):
     script = await get_user_script(message.from_user.id)
     text = message.text.replace(" ", "").replace(",", "").replace(".", "")
     
+    # Agar faqat raqam bo'lmasa (masalan "2:255" yoki oddiy so'z yozilgan bo'lsa)
     if not text.isdigit():
-        err = "❌ Iltimos, faqat raqam kiriting:\n(Bosh menyuga qaytish uchun 🔙 Asosiy menyu tugmasini bosing)" if script == 'latin' else "❌ Илтимос, фақат рақам киритинг:\n(Бош менюга қайтиш учун 🔙 Асосий меню тугмасини босинг)"
-        await message.answer(err)
+        await state.clear()
+        await search_verses_handler(message)
         return
         
     wealth = int(text)
+    
+    # Agar mablag' 1,000,000 dan kam bo'lsa (masalan "2 255" = 2255 raqami yozilsa)
+    if wealth < 1000000:
+        await state.clear()
+        if wealth < 10000:
+            # 10,000 dan kichik raqamlar aniq Sura/Oyat qidiruvi bo'ladi
+            await search_verses_handler(message)
+            return
+            
+        err = "❌ Zakot berish uchun mablag'ingiz Nisob miqdoriga (taxminan 40 mln so'm) yetgan bo'lishi kerak. Kiritilgan summa yetarli emas." if script == 'latin' else "❌ Закот бериш учун маблағингиз Нисоб миқдорига (тахминан 40 млн сўм) етган бўлиши керак. Киритилган сумма етарли эмас."
+        await message.answer(err, reply_markup=get_main_keyboard(script))
+        return
+        
     zakat_amount = wealth / 40  # 2.5%
     
     formatted_wealth = "{:,}".format(wealth).replace(",", " ")
