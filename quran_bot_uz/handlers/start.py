@@ -2,7 +2,7 @@ import math
 import aiohttp
 import os
 import datetime
-import re # <-- Yangi qidiruv tizimi uchun
+import re
 from aiogram import Router, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
@@ -12,7 +12,7 @@ from database.db_manager import (
     save_user_location, get_user_location, get_all_surahs, 
     get_surah_info, get_verse, get_all_duas, get_dua_by_id, search_verses_by_text,
     set_user_script, get_user_script, get_random_verse, set_user_qari, get_user_qari,
-    get_verse_by_sura_name, get_all_asmaulhusna, get_asma_by_id
+    get_verse_by_sura_name, get_all_asmaulhusna, get_asma_by_id, get_users_count
 )
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -46,10 +46,20 @@ async def cmd_start(message: Message, state: FSMContext = None):
     )
     await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
 
+@router.message(Command("stat", "users"))
+async def stat_handler(message: Message):
+    script = await get_user_script(message.from_user.id)
+    count = await get_users_count()
+    if script == 'latin':
+        text = f"📊 **Bot statistikasi:**\n\nAyni damda botimizdan **{count} ta** foydalanuvchi foydalanmoqda."
+    else:
+        text = f"📊 **Бот статистикаси:**\n\nАйни дамда ботимиздан **{count} та** фойдаланувчи фойдаланмоқда."
+    await message.answer(text, parse_mode="Markdown")
+
 @router.message(Command("test_namoz"))
 async def test_namoz_handler(message: Message):
     script = await get_user_script(message.from_user.id)
-    msg = "🕌 **Test namoz vaqti kirdi!**\n\n_(Alloh ibodatlaringizni qabul qilsin!)_" if script == 'latin' else "🕌 **Тест намоз вақти кирди!**\n\n_(Аллоҳ ибодатларингизни қабул қилсин!)_"
+    msg = "🕌 **Test namoz vaqti kirdi!**\n\n_(Alloh ibodatlaringizni qabul qilsin!)_\n\n👉 @al_qurani_karim_bot" if script == 'latin' else "🕌 **Тест намоз вақти кирди!**\n\n_(Аллоҳ ибодатларингизни қабул қилсин!)_\n\n👉 @al_qurani_karim_bot"
     await message.answer(msg, parse_mode="Markdown")
 
 @router.callback_query(F.data.startswith("set_script:"))
@@ -164,14 +174,16 @@ async def prayer_times_handler(message: Message):
                                 f"🌙 Hijriy: {h_date['day']} {h_date['month']['en']}, {h_date['year']}-yil\n\n"
                                 f"🌅 Bomdod: {timings['Fajr']}\n🌄 Quyosh: {timings['Sunrise']}\n"
                                 f"☀️ Peshin: {timings['Dhuhr']}\n🌇 Asr: {timings['Asr']}\n"
-                                f"🌆 Shom: {timings['Maghrib']}\n🌃 Xufton: {timings['Isha']}")
+                                f"🌆 Shom: {timings['Maghrib']}\n🌃 Xufton: {timings['Isha']}\n\n"
+                                f"👉 @al_qurani_karim_bot")
                     else:
                         text = (f"🕌 **Намоз вақтлари** (Жойлашувингиз бўйича)\n\n"
                                 f"🗓 Милодий: {data['data']['date']['readable']}\n"
                                 f"🌙 Ҳижрий: {h_date['day']} {h_date['month']['en']}, {h_date['year']}-йил\n\n"
                                 f"🌅 Бомдод: {timings['Fajr']}\n🌄 Қуёш: {timings['Sunrise']}\n"
                                 f"☀️ Пешин: {timings['Dhuhr']}\n🌇 Аср: {timings['Asr']}\n"
-                                f"🌆 Шом: {timings['Maghrib']}\n🌃 Хуфтон: {timings['Isha']}")
+                                f"🌆 Шом: {timings['Maghrib']}\n🌃 Хуфтон: {timings['Isha']}\n\n"
+                                f"👉 @al_qurani_karim_bot")
                     await message.answer(text, parse_mode="Markdown")
                 else:
                     await message.answer("API serverida xatolik yuz berdi." if script == 'latin' else "API серверида хатолик юз берди.")
@@ -221,7 +233,8 @@ async def ramadan_times_handler(message: Message):
                                 f"_Ma'nosi: Ramazon oyining ro'zasini subhdan to kun botguncha xolis Alloh taolo uchun tutishni niyat qildim. Alloh buyukdir._\n\n"
                                 f"🤲 **Iftorlik (Og'iz ochish) duosi:**\n"
                                 f"Allohumma laka sumtu va bika aamantu va a'layka tavakkaltu va a'laa rizqika aftartu, fag'firliy ma qoddamtu va maa axxortu. Birahmatika ya arhamar rohiymiyn.\n"
-                                f"_Ma'nosi: Ey Alloh, ushbu ro'zamni Sen uchun tutdim va Senga iymon keltirdim va Senga tavakkal qildim va bergan rizqing bilan iftor qildim. Ey mehribonlarning eng mehriboni, mening avvalgi va keyingi gunohlarimni mag'firat qilgil._")
+                                f"_Ma'nosi: Ey Alloh, ushbu ro'zamni Sen uchun tutdim va Senga iymon keltirdim va Senga tavakkal qildim va bergan rizqing bilan iftor qildim. Ey mehribonlarning eng mehriboni, mening avvalgi va keyingi gunohlarimni mag'firat qilgil._\n\n"
+                                f"👉 @al_qurani_karim_bot")
                     else:
                         text = (f"🌙 **Саҳарлик ва Ифторлик вақтлари**\n"
                                 f"📍 Жойлашувингиз бўйича\n"
@@ -233,33 +246,13 @@ async def ramadan_times_handler(message: Message):
                                 f"_Маъноси: Рамазон ойининг рўзасини субҳдан то кун ботгунча холис Аллоҳ таоло учун тутишни ният қилдим. Аллоҳ буюкдир._\n\n"
                                 f"🤲 **Ифторлик (Оғиз очиш) дуоси:**\n"
                                 f"Аллоҳумма лака сумту ва бика ааманту ва аълайка таваккалту ва аълаа ризқика афтарту, фағфирлий ма қоддамту ва маа аххорту. Бироҳматика я арҳамар роҳимийн.\n"
-                                f"_Маъноси: Эй Аллоҳ, ушбу рўзамни Сен учун тутдим ва Сенга иймон келтирдим ва Сенга таваккал қилдим ва берган ризқинг билан ифтор қилдим. Эй меҳрибонларнинг энг меҳрибони, менинг аввалги ва кейинги гуноҳларимни мағфират қилгил._")
+                                f"_Маъноси: Эй Аллоҳ, ушбу рўзамни Сен учун тутдим ва Сенга иймон келтирдим ва Сенга таваккал қилдим ва берган ризқинг билан ифтор қилдим. Эй меҳрибонларнинг энг меҳрибони, менинг аввалги ва кейинги гуноҳларимни мағфират қилгил._\n\n"
+                                f"👉 @al_qurani_karim_bot")
                     await message.answer(text, parse_mode="Markdown")
                 else:
                     await message.answer("API serverida xatolik yuz berdi." if script == 'latin' else "API серверида хатолик юз берди.")
     except Exception as e:
         await message.answer(f"Xatolik: {e}")
-
-@router.message(Command("testdb"))
-async def test_db_handler(message: Message):
-    import aiosqlite
-    from config import DB_PATH
-    try:
-        async with aiosqlite.connect(DB_PATH) as db:
-            async with db.execute("SELECT name FROM sqlite_master WHERE type='table';") as cursor:
-                tables = await cursor.fetchall()
-                names = [t[0] for t in tables if t[0] != 'sqlite_sequence']
-                
-                text = f"✅ BAZA ULANDI: {DB_PATH}\n\nJadvallar ({len(names)} ta):\n\n"
-                for name in names:
-                    async with db.execute(f"PRAGMA table_info('{name}')") as c:
-                        cols = await c.fetchall()
-                        col_names = [col[1] for col in cols]
-                        text += f"📁 **{name}**\nUstunlari: {', '.join(col_names)}\n\n"
-                        
-                await message.answer(text[:4000])
-    except Exception as e:
-        await message.answer(f"❌ Xato: {e}")
 
 @router.message(F.text.in_({"✨ Kun oyati", "✨ Кун ояти"}))
 async def daily_verse_handler(message: Message):
@@ -273,7 +266,7 @@ async def daily_verse_handler(message: Message):
         ar = verse.get('text_arabic', verse.get('arabic', ''))
         uz = verse.get('text_uzbek', verse.get('uzbek', verse.get('text', '')))
         
-        text = f"{title}\n\n📖 **{name} {sura_text}, {v_id}-{oyat_text}**\n\n📝 {ar}\n\n🇺🇿 {uz}"
+        text = f"{title}\n\n📖 **{name} {sura_text}, {v_id}-{oyat_text}**\n\n📝 {ar}\n\n🇺🇿 {uz}\n\n👉 @al_qurani_karim_bot"
         await message.answer(text, parse_mode="Markdown")
 
 @router.message(F.text.in_({"📖 Qur'on o'qish va tinglash", "📖 Қуръон ўқиш ва тинглаш"}))
@@ -341,7 +334,7 @@ async def full_surah_callback(call: CallbackQuery):
         name = surah_info.get('surah_name_uz', surah_info.get('name_uz', f"{surah_id}-sura"))
         
         msg = f"🎧 **{name}** (To'liq)\n🎙 {qari_name}" if script == 'latin' else f"🎧 **{name}** (Тўлиқ)\n🎙 {qari_name}"
-        await call.message.answer(f"{msg}\n\n📥 **Audio havola:** [Tinglash / Yuklab olish]({audio_url})", parse_mode="Markdown")
+        await call.message.answer(f"{msg}\n\n📥 **Audio havola:** [Tinglash / Yuklab olish]({audio_url})\n\n👉 @al_qurani_karim_bot", parse_mode="Markdown")
     await call.answer()
 
 @router.callback_query(F.data.startswith("verse:"))
@@ -357,10 +350,10 @@ async def verse_clicked_callback(call: CallbackQuery):
         ar = verse.get('text_arabic', verse.get('arabic', ''))
         uz = verse.get('text_uzbek', verse.get('uzbek', verse.get('text', '')))
         
-        text = f"📖 **{name} {sura_text}, {v_id}-{oyat_text}**\n\n📝 {ar}\n\n🇺🇿 {uz}"
+        text = f"📖 **{name} {sura_text}, {v_id}-{oyat_text}**\n\n📝 {ar}\n\n🇺🇿 {uz}\n\n👉 @al_qurani_karim_bot"
         
         btn_text = "▶️ Oyatni tinglash" if script == 'latin' else "▶️ Оятни тинглаш"
-        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=btn_text, callback_data=f"play_audio:{surah_id}:{v_id}")]])
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=btn_text, callback_data=f"play_audio:{surah_id}:{verse_id}")]])
         
         await call.message.answer(text, reply_markup=kb, parse_mode="Markdown")
     await call.answer()
@@ -391,7 +384,7 @@ async def play_audio_callback(call: CallbackQuery):
                     audio_url = data['data']['audio']
                     
                     sura_text, oyat_text = ("surasi", "oyat") if script == 'latin' else ("сураси", "оят")
-                    caption = f"🎙 {surah_id}-{sura_text}, {verse_id}-{oyat_text}"
+                    caption = f"🎙 {surah_id}-{sura_text}, {verse_id}-{oyat_text}\n\n👉 @al_qurani_karim_bot"
                     await call.message.answer_audio(audio=audio_url, caption=caption, parse_mode="Markdown")
                 else:
                     await call.message.answer("Audio topilmadi." if script == 'latin' else "Аудио топилмади.")
@@ -416,7 +409,7 @@ async def dua_detail_callback(call: CallbackQuery):
     if dua:
         oqilishi = "O'qilishi" if script == 'latin' else "Ўқилиши"
         manosi = "Ma'nosi" if script == 'latin' else "Маъноси"
-        text = f"🤲 **{dua['title']}**\n\n📝 {dua['text_arabic']}\n\n📖 {oqilishi}: _{dua['text_translit']}_\n\n🇺🇿 {manosi}: {dua['text_uzbek']}"
+        text = f"🤲 **{dua['title']}**\n\n📝 {dua['text_arabic']}\n\n📖 {oqilishi}: _{dua['text_translit']}_\n\n🇺🇿 {manosi}: {dua['text_uzbek']}\n\n👉 @al_qurani_karim_bot"
         btn_back = "🔙 Orqaga" if script == 'latin' else "🔙 Орқага"
         keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=btn_back, callback_data="back_to_duas")]])
         await call.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
@@ -516,7 +509,7 @@ async def asma_detail_callback(call: CallbackQuery):
     asma = await get_asma_by_id(asma_id, script)
     
     if asma:
-        text = f"✨ **{asma['id']}. {asma['latin']}**\n\n📝 {asma['arabic']}\n\n🇺🇿 **Ma'nosi:** {asma['uzbek']}" if script == 'latin' else f"✨ **{asma['id']}. {asma['latin']}**\n\n📝 {asma['arabic']}\n\n🇺🇿 **Маъноси:** {asma['uzbek']}"
+        text = f"✨ **{asma['id']}. {asma['latin']}**\n\n📝 {asma['arabic']}\n\n🇺🇿 **Ma'nosi:** {asma['uzbek']}\n\n👉 @al_qurani_karim_bot" if script == 'latin' else f"✨ **{asma['id']}. {asma['latin']}**\n\n📝 {asma['arabic']}\n\n🇺🇿 **Маъноси:** {asma['uzbek']}\n\n👉 @al_qurani_karim_bot"
         
         # Calculate which page this name belongs to so we can return to it
         page = ((asma_id - 1) // 30) + 1
@@ -572,11 +565,13 @@ async def qibla_handler(message: Message):
         if script == 'latin':
             text = (f"🧭 **Qibla yo'nalishi**\n\n"
                     f"Sizning joylashuvingiz bo'yicha Qibla (Ka'ba) yo'nalishi Shimoldan soat mili bo'ylab taxminan **{qibla:.1f}°** gradusda joylashgan.\n\n"
-                    f"📱 Aniqroq ko'rish uchun maxsus 3D xaritadan foydalaning:\n👉 [Qibla Finder Google]({qibla_link})")
+                    f"📱 Aniqroq ko'rish uchun maxsus 3D xaritadan foydalaning:\n👉 [Qibla Finder Google]({qibla_link})\n\n"
+                    f"👉 @al_qurani_karim_bot")
         else:
             text = (f"🧭 **Қибла йўналиши**\n\n"
                     f"Сизнинг жойлашувингиз бўйича Қибла (Каъба) йўналиши Шимолдан соат мили бўйлаб тахминан **{qibla:.1f}°** градусда жойлашган.\n\n"
-                    f"📱 Аниқроқ кўриш учун махсус 3D харитадан фойдаланинг:\n👉 [Qibla Finder Google]({qibla_link})")
+                    f"📱 Аниқроқ кўриш учун махсус 3D харитадан фойдаланинг:\n👉 [Qibla Finder Google]({qibla_link})\n\n"
+                    f"👉 @al_qurani_karim_bot")
             
         await message.answer(text, parse_mode="Markdown", disable_web_page_preview=True)
     except Exception as e:
@@ -639,13 +634,15 @@ async def zakat_calculate(message: Message, state: FSMContext):
                f"Siz kiritgan umumiy mablag': **{formatted_wealth} so'm**\n"
                f"Agar ushbu mablag' nisobga yetgan bo'lsa va unga egalik qilganingizga 1 qamariy yil (354 kun) to'lgan bo'lsa, sizning zakot miqdoringiz:\n\n"
                f"💰 **{formatted_zakat} so'm** (2.5%) bo'ladi.\n\n"
-               f"_Eslatma: Zakot miqdorini aniq belgilash va o'sha yilgi nisob miqdorini bilish uchun O'zbekiston Musulmonlari Idorasi fatvolariga tayanishingiz tavsiya etiladi._")
+               f"_Eslatma: Zakot miqdorini aniq belgilash va o'sha yilgi nisob miqdorini bilish uchun O'zbekiston Musulmonlari Idorasi fatvolariga tayanishingiz tavsiya etiladi._\n\n"
+               f"👉 @al_qurani_karim_bot")
     else:
         res = (f"📊 **Натижа:**\n\n"
                f"Сиз киритган умумий маблағ: **{formatted_wealth} сўм**\n"
                f"Агар ушбу маблағ нисобга етган бўлса ва унга эгалик қилганингизга 1 қамарий йил (354 кун) тўлган бўлса, сизнинг закот миқдорингиз:\n\n"
                f"💰 **{formatted_zakat} сўм** (2.5%) бўлади.\n\n"
-               f"_Эслатма: Закот миқдорини аниқ белгилаш ва ўша йилги нисоб миқдорини билиш учун Ўзбекистон Мусулмонлари Идораси фатволарига таянишингиз тавсия этилади._")
+               f"_Эслатма: Закот миқдорини аниқ белгилаш ва ўша йилги нисоб миқдорини билиш учун Ўзбекистон Мусулмонлари Идораси фатволарига таянишингиз тавсия этилади._\n\n"
+               f"👉 @al_qurani_karim_bot")
                
     await message.answer(res, parse_mode="Markdown", reply_markup=get_main_keyboard(script))
     await state.clear()
@@ -686,10 +683,10 @@ async def search_verses_handler(message: Message):
             ar = verse.get('text_arabic', verse.get('arabic', ''))
             uz = verse.get('text_uzbek', verse.get('uzbek', verse.get('text', '')))
             
-            text = f"📖 **{name} {sura_text}, {v_id}-{oyat_text}**\n\n📝 {ar}\n\n🇺🇿 {uz}"
+            text = f"📖 **{name} {sura_text}, {v_id}-{oyat_text}**\n\n📝 {ar}\n\n🇺🇿 {uz}\n\n👉 @al_qurani_karim_bot"
             
             btn_text = "▶️ Oyatni tinglash" if script == 'latin' else "▶️ Оятни тинглаш"
-            kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=btn_text, callback_data=f"play_audio:{surah_id}:{v_id}")]])
+            kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=btn_text, callback_data=f"play_audio:{surah_id}:{verse_id}")]])
             
             await message.answer(text, reply_markup=kb, parse_mode="Markdown")
             return
@@ -715,9 +712,10 @@ async def search_verses_handler(message: Message):
             uz_text = v.get('text_uzbek', v.get('uzbek', v.get('text', '')))
             text += f"📖 **{name}, {v_id}-{oyat_text}**\n{uz_text}\n\n---\n"
             
-        if len(text) > 4000:
-            text = text[:4000] + "...\n(Ko'p natija topildi / Кўп натижа топилди)"
+        if len(text) > 3900:
+            text = text[:3900] + "...\n(Ko'p natija topildi / Кўп натижа топилди)"
             
+        text += "\n👉 @al_qurani_karim_bot"
         await message.answer(text, parse_mode="Markdown")
     except Exception as e:
         await message.answer(f"Xatolik (Qidiruv): {e}")
