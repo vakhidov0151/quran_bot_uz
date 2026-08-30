@@ -96,7 +96,7 @@ async def check_and_send_prayer_notifications(bot: Bot):
                         
                         if p_time == user_current_time and p_key not in sent_list:
                             p_name = p_names[0] if script == 'latin' else p_names[1]
-                            msg = f"🕌 **{p_name} vaqti kirdi!**\n\n_(Alloh ibodatlaringizni qabul qilsin!)_" if script == 'latin' else f"🕌 **{p_name} вақти кирди!**\n\n_(Аллоҳ ибодатларингизни қабул қилсин!)_"
+                            msg = f"🕌 **{p_name} vaqti kirdi!**\n\n_(Alloh ibodatlaringizni qabul qilsin!)_\n\n👉 @al_qurani_karim_bot" if script == 'latin' else f"🕌 **{p_name} вақти кирди!**\n\n_(Аллоҳ ибодатларингизни қабул қилсин!)_\n\n👉 @al_qurani_karim_bot"
                             
                             try:
                                 await bot.send_message(user_id, msg, parse_mode="Markdown")
@@ -133,7 +133,7 @@ async def check_and_send_juma_notifications(bot: Bot):
                 ar = verse.get('text_arabic', verse.get('arabic', ''))
                 uz = verse.get('text_uzbek', verse.get('uzbek', verse.get('text', '')))
                 
-                text = f"{title}\n\n📖 **{name} {sura_text}, {v_id}-{oyat_text}**\n\n📝 {ar}\n\n🇺🇿 {uz}"
+                text = f"{title}\n\n📖 **{name} {sura_text}, {v_id}-{oyat_text}**\n\n📝 {ar}\n\n🇺🇿 {uz}\n\n👉 @al_qurani_karim_bot"
                 
                 try:
                     await bot.send_message(user_id, text, parse_mode="Markdown")
