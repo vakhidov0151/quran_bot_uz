@@ -1,0 +1,21 @@
+# Python kesh va tizim fayllari
+__pycache__/
+*.py[cod]
+*.class
+
+# Maxfiy kalitlar va muhit sozlamalari
+.env
+
+# Virtual muhit (Virtual environments)
+venv/
+.venv/
+env/
+
+# Foydalanuvchilarning dinamik bazasi (Railway Volume orqali boshqariladi)
+userdata/
+
+# Muharrir va tizim fayllari
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
