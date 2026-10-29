@@ -89,9 +89,15 @@ async def fetch_timings(session, loc_key, lat, lon):
             path = f"timings/{local_date}" if local_date else "timings"
             async with session.get(f"https://api.aladhan.com/v1/{path}?{params}",
                                    timeout=aiohttp.ClientTimeout(total=10)) as response:
+                if response.status == 429:
+                    # Aladhan so'rovlar chegarasi — tez orada qayta urinamiz
+                    location_retry_at[loc_key] = now_utc + datetime.timedelta(minutes=1)
+                    log.info("Aladhan 429 (%s) — 1 daqiqadan keyin qayta urinamiz", loc_key)
+                    return None
                 if response.status != 200:
                     raise RuntimeError(f"HTTP {response.status}")
                 data = await response.json()
+            await asyncio.sleep(0.3)  # API'ni ketma-ket so'rovlar bilan bosmaslik uchun
             tz_name = data['data']['meta']['timezone']
             location_tz[loc_key] = tz_name
             entry = {
@@ -134,7 +140,7 @@ async def check_and_send_prayer_notifications(bot: Bot):
             loc_key = f"{round(user['latitude'], 2)}_{round(user['longitude'], 2)}"
             by_loc.setdefault(loc_key, []).append(user)
 
-        sem = asyncio.Semaphore(5)
+        sem = asyncio.Semaphore(2)  # Aladhan ko'p parallel so'rovga 429 qaytaradi
         async with aiohttp.ClientSession() as session:
             async def _load(key, first_user):
                 async with sem:
