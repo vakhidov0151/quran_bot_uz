@@ -1,3 +1,4 @@
+import re
 import aiosqlite
 import datetime
 from zoneinfo import ZoneInfo
@@ -30,21 +31,67 @@ def latin_to_cyrillic(text: str) -> str:
     result = [mapping.get(char, char) for char in text]
     return "".join(result)
 
+_APOSTROPHES = "'ʻʼ‘’`"
+_LAT_SINGLE = {
+    'a': 'а', 'b': 'б', 'c': 'с', 'd': 'д', 'e': 'е', 'f': 'ф', 'g': 'г', 'h': 'ҳ', 'i': 'и', 'j': 'ж',
+    'k': 'к', 'l': 'л', 'm': 'м', 'n': 'н', 'o': 'о', 'p': 'п', 'q': 'қ', 'r': 'р', 's': 'с', 't': 'т',
+    'u': 'у', 'v': 'в', 'w': 'в', 'x': 'х', 'y': 'й', 'z': 'з'
+}
+_LAT_PAIRS = {'sh': 'ш', 'ch': 'ч', 'yo': 'ё', 'yu': 'ю', 'ya': 'я'}
+
+def uz_latin_to_cyrillic(text: str) -> str:
+    """Matnni ko'rsatish uchun Lotindan Kirillga o'giradi (katta-kichik harflar saqlanadi)."""
+    if not text: return ""
+    out, i, n = [], 0, len(text)
+    while i < n:
+        ch = text[i]
+        low = ch.lower()
+        nxt = text[i + 1] if i + 1 < n else ''
+        word_start = i == 0 or not text[i - 1].isalpha()
+        if low in ('o', 'g') and nxt and nxt in _APOSTROPHES:
+            cyr, i = ('ў' if low == 'o' else 'ғ'), i + 2
+        elif nxt and (low + nxt.lower()) in _LAT_PAIRS:
+            cyr, i = _LAT_PAIRS[low + nxt.lower()], i + 2
+        elif low == 'y' and nxt.lower() == 'e' and word_start:
+            cyr, i = 'е', i + 2
+        elif low == 'e' and word_start:
+            cyr, i = 'э', i + 1
+        elif ch in _APOSTROPHES:
+            out.append('ъ')
+            i += 1
+            continue
+        elif low in _LAT_SINGLE:
+            cyr, i = _LAT_SINGLE[low], i + 1
+        else:
+            out.append(ch)
+            i += 1
+            continue
+        out.append(cyr.upper() if ch.isupper() else cyr)
+    return "".join(out)
+
+async def init_user_db():
+    """Foydalanuvchilar jadvali va migratsiyalar — bot ishga tushganda BIR marta."""
+    async with aiosqlite.connect(USER_DB_PATH) as db:
+        await db.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY,
+            latitude REAL,
+            longitude REAL,
+            script TEXT DEFAULT 'latin',
+            qari TEXT DEFAULT 'alafasy'
+        )
+        """)
+        for col_sql in ("script TEXT DEFAULT 'latin'", "qari TEXT DEFAULT 'alafasy'"):
+            try:
+                await db.execute(f"ALTER TABLE users ADD COLUMN {col_sql}")
+            except aiosqlite.OperationalError:
+                pass  # ustun allaqachon bor
+        await db.commit()
+
 async def ensure_user(user_id: int):
     async with aiosqlite.connect(USER_DB_PATH) as db:
-        try:
-            await db.execute("ALTER TABLE users ADD COLUMN script TEXT DEFAULT 'latin'")
-            await db.commit()
-        except: pass
-        try:
-            await db.execute("ALTER TABLE users ADD COLUMN qari TEXT DEFAULT 'alafasy'")
-            await db.commit()
-        except: pass
-        
-        async with db.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,)) as cursor:
-            if not await cursor.fetchone():
-                await db.execute("INSERT INTO users (user_id, script, qari) VALUES (?, 'latin', 'alafasy')", (user_id,))
-                await db.commit()
+        await db.execute("INSERT OR IGNORE INTO users (user_id, script, qari) VALUES (?, 'latin', 'alafasy')", (user_id,))
+        await db.commit()
 
 async def set_user_script(user_id: int, script: str):
     await ensure_user(user_id)
@@ -115,19 +162,37 @@ async def get_verse(surah_id: int, verse_id: int, script='latin'):
             row = await cursor.fetchone()
             return translate_dict(dict(row), script) if row else None
 
-# === YANGI FUNKSIYA: SURA NOMI VA OYAT RAQAMI BO'YICHA QIDIRISH ===
+def normalize_surah_name(name: str) -> str:
+    """Sura nomini taqqoslash uchun soddalashtiradi: "Al-Faatiha", "Fotiha", "Фотиҳа" -> "fatiha"."""
+    s = cyrillic_to_latin(name or "").lower()
+    s = re.sub(r"^\s*(a[a-z]{1,2}|oli)[-\s]+", "", s)    # al-, an-, ar-, ash-, "Oli Imron" ...
+    s = s.replace("kh", "x").replace("gh", "g").replace("th", "t").replace("dh", "z").replace("w", "v")
+    s = re.sub(r"[^a-z]", "", s)                          # tutuq belgisi, chiziqcha, bo'shliq
+    s = s.replace("oo", "u").replace("o", "a").replace("e", "i")  # "Noor" -> "nur"; o'zbekcha "o"/"e" ~ "a"/"i"
+    s = re.sub(r"(.)\1+", r"\1", s)                       # aa -> a, ee -> e, mm -> m
+    return s
+
+_surah_names_cache = None
+
+# === SURA NOMI VA OYAT RAQAMI BO'YICHA QIDIRISH (masalan: "Baqara 255", "Fotiha 7", "Бақара 255") ===
 async def get_verse_by_sura_name(keyword: str, verse_id: int, script='latin'):
+    global _surah_names_cache
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        search_word1 = f"%{latin_to_cyrillic(keyword)}%"
-        search_word2 = f"%{keyword}%"
-        # Ikkala yozuvda ham izlaymiz (name_uz yoki surah_name_uz)
-        query = """
-            SELECT * FROM verses 
-            WHERE (surah_name_uz LIKE ? OR surah_name_uz LIKE ? OR name_uz LIKE ? OR name_uz LIKE ?) 
-            AND verse_id = ? LIMIT 1
-        """
-        async with db.execute(query, (search_word1, search_word2, search_word1, search_word2, verse_id)) as cursor:
+        if _surah_names_cache is None:
+            async with db.execute("SELECT DISTINCT surah_id, surah_name_uz FROM verses ORDER BY surah_id") as cursor:
+                _surah_names_cache = [(r['surah_id'], normalize_surah_name(r['surah_name_uz'])) for r in await cursor.fetchall()]
+
+        query = normalize_surah_name(keyword)
+        if len(query) < 2:
+            return None
+        surah_id = next((sid for sid, n in _surah_names_cache if n == query), None) \
+            or next((sid for sid, n in _surah_names_cache if n.startswith(query)), None) \
+            or next((sid for sid, n in _surah_names_cache if query in n), None)
+        if surah_id is None:
+            return None
+
+        async with db.execute("SELECT * FROM verses WHERE surah_id = ? AND verse_id = ?", (surah_id, verse_id)) as cursor:
             row = await cursor.fetchone()
             return translate_dict(dict(row), script) if row else None
 
@@ -193,6 +258,8 @@ async def get_all_duas(script='latin'):
             return [translate_dict(dict(row), script) for row in rows]
 
 async def get_dua_by_id(dua_id: int, script='latin'):
+    # Deploydan keyin jadval hali yaratilmagan bo'lishi mumkin (eski xabardagi tugma bosilsa)
+    await get_all_duas(script)
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT * FROM duas WHERE id = ?", (dua_id,)) as cursor:
@@ -203,7 +270,10 @@ async def search_verses_by_text(keyword: str, script='latin'):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         search_word = latin_to_cyrillic(keyword) if script == 'latin' else keyword
-        async with db.execute("SELECT * FROM verses WHERE text_uzbek LIKE ? LIMIT 10", (f"%{search_word}%",)) as cursor:
+        # SQLite LIKE kirill harflarida katta-kichikni farqlaydi — gap boshidagi so'z uchun bosh harfli variant ham
+        capitalized = search_word[:1].upper() + search_word[1:]
+        async with db.execute("SELECT * FROM verses WHERE text_uzbek LIKE ? OR text_uzbek LIKE ? LIMIT 10",
+                              (f"%{search_word}%", f"%{capitalized}%")) as cursor:
             rows = await cursor.fetchall()
             return [translate_dict(dict(row), script) for row in rows]
 
@@ -364,11 +434,21 @@ async def get_all_asmaulhusna(script='latin'):
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT * FROM asma ORDER BY id") as cursor:
             rows = await cursor.fetchall()
-            return [translate_dict(dict(row), script) for row in rows]
+            return [_asma_for_script(dict(row), script) for row in rows]
+
+def _asma_for_script(asma: dict, script: str) -> dict:
+    # Asmo ul-Husna ma'lumotlari Lotinda saqlangan — Kirill tanlaganlar uchun o'giramiz
+    if script == 'cyrillic':
+        for key in ('latin', 'uzbek'):
+            if asma.get(key):
+                asma[key] = uz_latin_to_cyrillic(asma[key])
+    return asma
 
 async def get_asma_by_id(asma_id: int, script='latin'):
+    # Deploydan keyin jadval hali yaratilmagan bo'lishi mumkin (eski xabardagi tugma bosilsa)
+    await get_all_asmaulhusna(script)
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT * FROM asma WHERE id = ?", (asma_id,)) as cursor:
             row = await cursor.fetchone()
-            return translate_dict(dict(row), script) if row else None
+            return _asma_for_script(dict(row), script) if row else None

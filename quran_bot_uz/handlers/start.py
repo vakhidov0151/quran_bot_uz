@@ -1,8 +1,10 @@
 import math
+import html
 import aiohttp
 import os
 import datetime
 import re
+from config import ADMIN_IDS, NISAB_SOM
 from aiogram import Router, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
@@ -12,7 +14,7 @@ from database.db_manager import (
     save_user_location, get_user_location, get_all_surahs, 
     get_surah_info, get_verse, get_all_duas, get_dua_by_id, search_verses_by_text,
     set_user_script, get_user_script, get_random_verse, set_user_qari, get_user_qari,
-    get_verse_by_sura_name, get_all_asmaulhusna, get_asma_by_id, get_users_count
+    get_verse_by_sura_name, get_all_asmaulhusna, get_asma_by_id, get_users_count, ensure_user
 )
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -33,21 +35,30 @@ def get_qari_inline_keyboard(script):
 async def cmd_start(message: Message, state: FSMContext = None):
     if state:
         await state.clear()
+    # Statistikaga va Juma xabarnomasiga kirishi uchun darhol ro'yxatga olamiz
+    await ensure_user(message.from_user.id)
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="🇺🇿 Lotincha (Lotin)", callback_data="set_script:latin"),
             InlineKeyboardButton(text="🇺🇿 Кириллча (Kirill)", callback_data="set_script:cyrillic")
         ]
     ])
+    # Ismda _ * [ ` bo'lsa Markdown buziladi — shuning uchun HTML va ismni ekranlaymiz
     text = (
-        f"Assalomu alaykum, {message.from_user.full_name}!\n\n"
-        "📖 **Qur'oni Karim botiga xush kelibsiz.**\n\n"
+        f"Assalomu alaykum, {html.escape(message.from_user.full_name)}!\n\n"
+        "📖 <b>Qur'oni Karim botiga xush kelibsiz.</b>\n\n"
         "Iltimos, o'zingizga qulay yozuv turini tanlang / Пожалуйста, выберите удобный шрифт:"
     )
-    await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
+    await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+
+def is_admin(user_id: int) -> bool:
+    # ADMIN_IDS o'rnatilmagan bo'lsa, avvalgidek hammaga ochiq qoladi
+    return not ADMIN_IDS or user_id in ADMIN_IDS
 
 @router.message(Command("stat", "users"))
 async def stat_handler(message: Message):
+    if not is_admin(message.from_user.id):
+        return
     script = await get_user_script(message.from_user.id)
     count = await get_users_count()
     if script == 'latin':
@@ -58,6 +69,8 @@ async def stat_handler(message: Message):
 
 @router.message(Command("test_namoz"))
 async def test_namoz_handler(message: Message):
+    if not is_admin(message.from_user.id):
+        return
     script = await get_user_script(message.from_user.id)
     msg = "🕌 **Test namoz vaqti kirdi!**\n\n_(Alloh ibodatlaringizni qabul qilsin!)_\n\n👉 @al\\_qurani\\_karim\\_bot" if script == 'latin' else "🕌 **Тест намоз вақти кирди!**\n\n_(Аллоҳ ибодатларингизни қабул қилсин!)_\n\n👉 @al\\_qurani\\_karim\\_bot"
     await message.answer(msg, parse_mode="Markdown")
@@ -602,25 +615,30 @@ async def zakat_start(message: Message, state: FSMContext):
 @router.message(ZakatState.waiting_for_wealth)
 async def zakat_calculate(message: Message, state: FSMContext):
     script = await get_user_script(message.from_user.id)
+    if not message.text:
+        # Rasm, stiker va h.k. — summani qayta so'raymiz (holat saqlanadi)
+        ask = "Iltimos, summani raqamlar bilan yozing. Masalan: 50000000" if script == 'latin' else "Илтимос, суммани рақамлар билан ёзинг. Масалан: 50000000"
+        await message.answer(ask)
+        return
     text = message.text.replace(" ", "").replace(",", "").replace(".", "")
-    
+
     # Agar faqat raqam bo'lmasa (masalan "2:255" yoki oddiy so'z yozilgan bo'lsa)
     if not text.isdigit():
         await state.clear()
         await search_verses_handler(message)
         return
-        
+
     wealth = int(text)
-    
-    # Agar mablag' 1,000,000 dan kam bo'lsa (masalan "2 255" = 2255 raqami yozilsa)
-    if wealth < 1000000:
+
+    if wealth < NISAB_SOM:
         await state.clear()
         if wealth < 10000:
-            # 10,000 dan kichik raqamlar aniq Sura/Oyat qidiruvi bo'ladi
+            # 10,000 dan kichik raqamlar aniq Sura/Oyat qidiruvi bo'ladi (masalan "2 255" = 2255)
             await search_verses_handler(message)
             return
-            
-        err = "❌ Zakot berish uchun mablag'ingiz Nisob miqdoriga (taxminan 40 mln so'm) yetgan bo'lishi kerak. Kiritilgan summa yetarli emas." if script == 'latin' else "❌ Закот бериш учун маблағингиз Нисоб миқдорига (тахминан 40 млн сўм) етган бўлиши керак. Киритилган сумма етарли эмас."
+
+        nisab_str = "{:,}".format(NISAB_SOM).replace(",", " ")
+        err = f"❌ Zakot berish uchun mablag'ingiz Nisob miqdoriga (taxminan {nisab_str} so'm) yetgan bo'lishi kerak. Kiritilgan summa yetarli emas." if script == 'latin' else f"❌ Закот бериш учун маблағингиз Нисоб миқдорига (тахминан {nisab_str} сўм) етган бўлиши керак. Киритилган сумма етарли эмас."
         await message.answer(err, reply_markup=get_main_keyboard(script))
         return
         
