@@ -78,10 +78,13 @@ async def init_user_db():
             latitude REAL,
             longitude REAL,
             script TEXT DEFAULT 'latin',
-            qari TEXT DEFAULT 'alafasy'
+            qari TEXT DEFAULT 'alafasy',
+            notify_enabled INTEGER DEFAULT 1,
+            notify_off TEXT DEFAULT ''
         )
         """)
-        for col_sql in ("script TEXT DEFAULT 'latin'", "qari TEXT DEFAULT 'alafasy'"):
+        for col_sql in ("script TEXT DEFAULT 'latin'", "qari TEXT DEFAULT 'alafasy'",
+                        "notify_enabled INTEGER DEFAULT 1", "notify_off TEXT DEFAULT ''"):
             try:
                 await db.execute(f"ALTER TABLE users ADD COLUMN {col_sql}")
             except aiosqlite.OperationalError:
@@ -131,6 +134,29 @@ async def get_user_qari(user_id: int) -> str:
                 if row and row[0]: return row[0]
     except: pass
     return 'alafasy'
+
+async def get_notify_settings(user_id: int):
+    """(barcha xabarnomalar yoqilganmi, o'chirilgan namozlar to'plami)."""
+    async with aiosqlite.connect(USER_DB_PATH) as db:
+        async with db.execute("SELECT notify_enabled, notify_off FROM users WHERE user_id = ?", (user_id,)) as cursor:
+            row = await cursor.fetchone()
+    if not row:
+        return True, set()
+    return row[0] != 0, {p for p in (row[1] or "").split(",") if p}
+
+async def toggle_notify_enabled(user_id: int):
+    await ensure_user(user_id)
+    async with aiosqlite.connect(USER_DB_PATH) as db:
+        await db.execute("UPDATE users SET notify_enabled = CASE WHEN COALESCE(notify_enabled, 1) = 0 THEN 1 ELSE 0 END WHERE user_id = ?", (user_id,))
+        await db.commit()
+
+async def toggle_notify_prayer(user_id: int, prayer_key: str):
+    await ensure_user(user_id)
+    _, off = await get_notify_settings(user_id)
+    off.symmetric_difference_update({prayer_key})
+    async with aiosqlite.connect(USER_DB_PATH) as db:
+        await db.execute("UPDATE users SET notify_off = ? WHERE user_id = ?", (",".join(sorted(off)), user_id))
+        await db.commit()
 
 def translate_dict(d: dict, script: str):
     if script == 'cyrillic': return d

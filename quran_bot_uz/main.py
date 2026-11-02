@@ -8,7 +8,7 @@ import os
 from aiogram import Bot, Dispatcher
 from aiogram.exceptions import TelegramRetryAfter, TelegramForbiddenError, TelegramBadRequest
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from config import BOT_TOKEN, DB_PATH, USER_DB_PATH
+from config import BOT_TOKEN, DB_PATH, USER_DB_PATH, PRAYER_NAMES
 from handlers import start
 from database.db_manager import init_user_db
 
@@ -23,14 +23,6 @@ TASHKENT_TZ = ZoneInfo("Asia/Tashkent")
 NOTIFY_WINDOW_MINUTES = 20
 # Telegram limiti ~30 xabar/soniya — biz 25 tadan yuboramiz
 SEND_RATE_PER_SECOND = 25
-
-PRAYER_NAMES = {
-    "Fajr": ("Bomdod", "Бомдод"),
-    "Dhuhr": ("Peshin", "Пешин"),
-    "Asr": ("Asr", "Аср"),
-    "Maghrib": ("Shom", "Шом"),
-    "Isha": ("Xufton", "Хуфтон")
-}
 
 location_cache = {}      # loc_key -> {"date": "DD-MM-YYYY" (mahalliy sana), "timings": {...}, "timezone": "..."}
 location_tz = {}         # loc_key -> vaqt mintaqasi
@@ -128,7 +120,8 @@ async def check_and_send_prayer_notifications(bot: Bot):
     try:
         async with aiosqlite.connect(USER_DB_PATH) as db:
             db.row_factory = aiosqlite.Row
-            async with db.execute("SELECT user_id, latitude, longitude, script FROM users WHERE latitude IS NOT NULL") as cursor:
+            async with db.execute("SELECT user_id, latitude, longitude, script, notify_off FROM users "
+                                  "WHERE latitude IS NOT NULL AND COALESCE(notify_enabled, 1) != 0") as cursor:
                 users = await cursor.fetchall()
 
         if not users:
@@ -167,6 +160,8 @@ async def check_and_send_prayer_notifications(bot: Bot):
                 if p_dt < skip_before:
                     continue
                 for user in by_loc[loc_key]:
+                    if p_key in (user['notify_off'] or "").split(","):
+                        continue  # foydalanuvchi shu namoz xabarini o'chirgan
                     mark = (user['user_id'], p_key)
                     if mark in sent:
                         continue
@@ -187,7 +182,7 @@ async def check_and_send_juma_notifications(bot: Bot):
 
         async with aiosqlite.connect(USER_DB_PATH) as db:
             db.row_factory = aiosqlite.Row
-            async with db.execute("SELECT user_id, script FROM users") as cursor:
+            async with db.execute("SELECT user_id, script FROM users WHERE COALESCE(notify_enabled, 1) != 0") as cursor:
                 users = await cursor.fetchall()
 
         if not users:

@@ -4,7 +4,7 @@ import aiohttp
 import os
 import datetime
 import re
-from config import ADMIN_IDS, NISAB_SOM
+from config import ADMIN_IDS, NISAB_SOM, PRAYER_NAMES, CITIES
 from aiogram import Router, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
@@ -14,7 +14,8 @@ from database.db_manager import (
     save_user_location, get_user_location, get_all_surahs, 
     get_surah_info, get_verse, get_all_duas, get_dua_by_id, search_verses_by_text,
     set_user_script, get_user_script, get_random_verse, set_user_qari, get_user_qari,
-    get_verse_by_sura_name, get_all_asmaulhusna, get_asma_by_id, get_users_count, ensure_user
+    get_verse_by_sura_name, get_all_asmaulhusna, get_asma_by_id, get_users_count, ensure_user,
+    get_notify_settings, toggle_notify_enabled, toggle_notify_prayer
 )
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -96,19 +97,124 @@ async def set_qari_callback(call: CallbackQuery):
     await call.message.answer(menu_text, reply_markup=get_main_keyboard(script), parse_mode="Markdown")
     await call.answer()
 
+def build_settings_menu(script):
+    text = "⚙️ **Sozlamalar**\n\nNimani o'zgartirmoqchisiz?" if script == 'latin' else "⚙️ **Созламалар**\n\nНимани ўзгартирмоқчисиз?"
+
+    btn_lang = "🇺🇿 Yozuvni o'zgartirish" if script == 'latin' else "🇺🇿 Ёзувни ўзгартириш"
+    btn_qari = "🎙 Qorini o'zgartirish" if script == 'latin' else "🎙 Қорини ўзгартириш"
+    btn_notify = "🔔 Namoz xabarnomalari" if script == 'latin' else "🔔 Намоз хабарномалари"
+    btn_city = "🏙 Shaharni tanlash" if script == 'latin' else "🏙 Шаҳарни танлаш"
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=btn_lang, callback_data="change_lang")],
+        [InlineKeyboardButton(text=btn_qari, callback_data="change_qari")],
+        [InlineKeyboardButton(text=btn_notify, callback_data="notify_menu")],
+        [InlineKeyboardButton(text=btn_city, callback_data="city_menu")]
+    ])
+    return text, keyboard
+
 @router.message(F.text.in_({"⚙️ Sozlamalar", "⚙️ Созламалар"}))
 async def settings_handler(message: Message):
     script = await get_user_script(message.from_user.id)
-    text = "⚙️ **Sozlamalar**\n\nNimani o'zgartirmoqchisiz?" if script == 'latin' else "⚙️ **Созламалар**\n\nНимани ўзгартирмоқчисиз?"
-    
-    btn_lang = "🇺🇿 Yozuvni o'zgartirish" if script == 'latin' else "🇺🇿 Ёзувни ўзгартириш"
-    btn_qari = "🎙 Qorini o'zgartirish" if script == 'latin' else "🎙 Қорини ўзгартириш"
-    
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=btn_lang, callback_data="change_lang")],
-        [InlineKeyboardButton(text=btn_qari, callback_data="change_qari")]
-    ])
+    text, keyboard = build_settings_menu(script)
     await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
+
+@router.callback_query(F.data == "settings_menu")
+async def settings_menu_callback(call: CallbackQuery):
+    script = await get_user_script(call.from_user.id)
+    text, keyboard = build_settings_menu(script)
+    await call.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+    await call.answer()
+
+async def build_notify_menu(user_id, script):
+    enabled, off = await get_notify_settings(user_id)
+    has_location = await get_user_location(user_id)
+    latin = script == 'latin'
+
+    if enabled:
+        text = "🔔 **Namoz xabarnomalari: yoqilgan**\n\nQaysi namozlar uchun xabar kelishini tanlang:" if latin else "🔔 **Намоз хабарномалари: ёқилган**\n\nҚайси намозлар учун хабар келишини танланг:"
+    else:
+        text = "🔕 **Xabarnomalar o'chirilgan**\n\nNamoz va Juma xabarlari kelmaydi." if latin else "🔕 **Хабарномалар ўчирилган**\n\nНамоз ва Жума хабарлари келмайди."
+    if not has_location:
+        text += "\n\n⚠️ Xabar kelishi uchun joylashuv yuboring yoki shaharni tanlang." if latin else "\n\n⚠️ Хабар келиши учун жойлашув юборинг ёки шаҳарни танланг."
+
+    rows = []
+    if enabled:
+        for key, names in PRAYER_NAMES.items():
+            name = names[0] if latin else names[1]
+            rows.append([InlineKeyboardButton(text=f"{'🔕' if key in off else '✅'} {name}", callback_data=f"notify_p:{key}")])
+        toggle_text = "🔕 Hammasini o'chirish" if latin else "🔕 Ҳаммасини ўчириш"
+    else:
+        toggle_text = "🔔 Yoqish" if latin else "🔔 Ёқиш"
+    rows.append([InlineKeyboardButton(text=toggle_text, callback_data="notify_all")])
+    rows.append([InlineKeyboardButton(text="🔙 Orqaga" if latin else "🔙 Орқага", callback_data="settings_menu")])
+    return text, InlineKeyboardMarkup(inline_keyboard=rows)
+
+@router.callback_query(F.data == "notify_menu")
+async def notify_menu_callback(call: CallbackQuery):
+    script = await get_user_script(call.from_user.id)
+    text, keyboard = await build_notify_menu(call.from_user.id, script)
+    await call.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+    await call.answer()
+
+@router.callback_query(F.data == "notify_all")
+async def notify_all_callback(call: CallbackQuery):
+    await toggle_notify_enabled(call.from_user.id)
+    await notify_menu_callback(call)
+
+@router.callback_query(F.data.startswith("notify_p:"))
+async def notify_prayer_callback(call: CallbackQuery):
+    key = call.data.split(":")[1]
+    if key in PRAYER_NAMES:
+        await toggle_notify_prayer(call.from_user.id, key)
+    await notify_menu_callback(call)
+
+def build_city_keyboard(script):
+    idx = 0 if script == 'latin' else 1
+    rows, row = [], []
+    for key, city in CITIES.items():
+        row.append(InlineKeyboardButton(text=city[idx], callback_data=f"city:{key}"))
+        if len(row) == 2:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+def location_request_keyboard(script):
+    latin = script == 'latin'
+    return ReplyKeyboardMarkup(keyboard=[
+        [KeyboardButton(text="📍 Joylashuvni jo'natish" if latin else "📍 Жойлашувни жўнатиш", request_location=True)],
+        [KeyboardButton(text="🏙 Shaharni tanlash" if latin else "🏙 Шаҳарни танлаш")],
+        [KeyboardButton(text="🔙 Asosiy menyu" if latin else "🔙 Асосий меню")]
+    ], resize_keyboard=True)
+
+@router.message(F.text.in_({"🏙 Shaharni tanlash", "🏙 Шаҳарни танлаш"}))
+async def city_prompt_handler(message: Message):
+    script = await get_user_script(message.from_user.id)
+    text = "🏙 Viloyat markazini tanlang:" if script == 'latin' else "🏙 Вилоят марказини танланг:"
+    await message.answer(text, reply_markup=build_city_keyboard(script))
+
+@router.callback_query(F.data == "city_menu")
+async def city_menu_callback(call: CallbackQuery):
+    script = await get_user_script(call.from_user.id)
+    text = "🏙 Viloyat markazini tanlang:" if script == 'latin' else "🏙 Вилоят марказини танланг:"
+    await call.message.edit_text(text, reply_markup=build_city_keyboard(script))
+    await call.answer()
+
+@router.callback_query(F.data.startswith("city:"))
+async def city_selected_callback(call: CallbackQuery):
+    city = CITIES.get(call.data.split(":")[1])
+    if not city:
+        await call.answer()
+        return
+    script = await get_user_script(call.from_user.id)
+    await save_user_location(call.from_user.id, city[2], city[3])
+    name = city[0] if script == 'latin' else city[1]
+    msg = f"✅ {name} saqlandi!\n\nEndi «🕌 Namoz vaqtlari» tugmasini bosing." if script == 'latin' else f"✅ {name} сақланди!\n\nЭнди «🕌 Намоз вақтлари» тугмасини босинг."
+    await call.message.delete()
+    await call.message.answer(msg, reply_markup=get_main_keyboard(script))
+    await call.answer()
 
 @router.callback_query(F.data == "change_lang")
 async def change_lang_callback(call: CallbackQuery):
@@ -158,9 +264,7 @@ async def prayer_times_handler(message: Message):
     location = await get_user_location(message.from_user.id)
     
     if not location or not location['latitude']:
-        btn_text = "📍 Joylashuvni jo'natish" if script == 'latin' else "📍 Жойлашувни жўнатиш"
-        back_text = "🔙 Asosiy menyu" if script == 'latin' else "🔙 Асосий меню"
-        kb = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text=btn_text, request_location=True)], [KeyboardButton(text=back_text)]], resize_keyboard=True)
+        kb = location_request_keyboard(script)
         msg_text = "Siz hali joylashuvingizni yubormagansiz.\n\nIltimos, pastdagi **«📍 Joylashuvni jo'natish»** tugmasini bosing." if script == 'latin' else "Сиз ҳали жойлашувингизни юбормагансиз.\n\nИлтимос, пастдаги **«📍 Жойлашувни жўнатиш»** тугмасини босинг."
         await message.answer(msg_text, reply_markup=kb, parse_mode="Markdown")
         return
@@ -209,9 +313,7 @@ async def ramadan_times_handler(message: Message):
     location = await get_user_location(message.from_user.id)
     
     if not location or not location['latitude']:
-        btn_text = "📍 Joylashuvni jo'natish" if script == 'latin' else "📍 Жойлашувни жўнатиш"
-        back_text = "🔙 Asosiy menyu" if script == 'latin' else "🔙 Асосий меню"
-        kb = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text=btn_text, request_location=True)], [KeyboardButton(text=back_text)]], resize_keyboard=True)
+        kb = location_request_keyboard(script)
         msg_text = "Saharlik va Iftorlik vaqtlarini bilish uchun joylashuvingiz kerak.\n\nIltimos, pastdagi **«📍 Joylashuvni jo'natish»** tugmasini bosing." if script == 'latin' else "Саҳарлик ва Ифторлик вақтларини билиш учун жойлашувингиз керак.\n\nИлтимос, пастдаги **«📍 Жойлашувни жўнатиш»** тугмасини босинг."
         await message.answer(msg_text, reply_markup=kb, parse_mode="Markdown")
         return
@@ -550,9 +652,7 @@ async def qibla_handler(message: Message):
     location = await get_user_location(message.from_user.id)
     
     if not location or not location['latitude']:
-        btn_text = "📍 Joylashuvni jo'natish" if script == 'latin' else "📍 Жойлашувни жўнатиш"
-        back_text = "🔙 Asosiy menyu" if script == 'latin' else "🔙 Асосий меню"
-        kb = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text=btn_text, request_location=True)], [KeyboardButton(text=back_text)]], resize_keyboard=True)
+        kb = location_request_keyboard(script)
         msg_text = "Qiblani aniqlash uchun joylashuvingiz kerak.\n\nIltimos, pastdagi **«📍 Joylashuvni jo'natish»** tugmasini bosing." if script == 'latin' else "Қиблани аниқлаш учун жойлашувингиз керак.\n\nИлтимос, пастдаги **«📍 Жойлашувни жўнатиш»** тугмасини босинг."
         await message.answer(msg_text, reply_markup=kb, parse_mode="Markdown")
         return
