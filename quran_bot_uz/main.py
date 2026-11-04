@@ -9,8 +9,8 @@ from aiogram import Bot, Dispatcher
 from aiogram.exceptions import TelegramRetryAfter, TelegramForbiddenError, TelegramBadRequest
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from config import BOT_TOKEN, DB_PATH, USER_DB_PATH, PRAYER_NAMES
-from handlers import start
-from database.db_manager import init_user_db
+from handlers import start, xatm
+from database.db_manager import init_user_db, get_xatm_reminder_candidates, update_xatm_plan
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("main")
@@ -23,6 +23,12 @@ TASHKENT_TZ = ZoneInfo("Asia/Tashkent")
 NOTIFY_WINDOW_MINUTES = 20
 # Telegram limiti ~30 xabar/soniya — biz 25 tadan yuboramiz
 SEND_RATE_PER_SECOND = 25
+# Xatm eslatmasi: namozdan shuncha keyin keladi (namoz xabarnomasi bilan ustma-ust tushmasin)
+XATM_AFTER_PRAYER_MINUTES = 30
+# Vaqt kirgandan keyin shu muddat ichida yuboriladi (bot o'chib yonsa yoki API javob bermasa ham)
+XATM_WINDOW_HOURS = 3
+# Shuncha eslatmaga javob bo'lmasa, "davom etamizmi?" deb so'raladi
+XATM_MAX_UNANSWERED = 3
 
 location_cache = {}      # loc_key -> {"date": "DD-MM-YYYY" (mahalliy sana), "timings": {...}, "timezone": "..."}
 location_tz = {}         # loc_key -> vaqt mintaqasi
@@ -36,11 +42,12 @@ send_queue: asyncio.Queue = None
 async def message_sender(bot: Bot):
     """Navbatdagi xabarlarni Telegram limitiga rioya qilib yuboradi."""
     while True:
-        chat_id, text = await send_queue.get()
+        chat_id, text, *options = await send_queue.get()
+        send_options = options[0] if options else {"parse_mode": "Markdown"}
         try:
             for _attempt in range(3):
                 try:
-                    await bot.send_message(chat_id, text, parse_mode="Markdown")
+                    await bot.send_message(chat_id, text, **send_options)
                     break
                 except TelegramRetryAfter as e:
                     await asyncio.sleep(e.retry_after + 1)
@@ -211,11 +218,85 @@ async def check_and_send_juma_notifications(bot: Bot):
         log.exception("Xatolik (Juma Checker): %s", e)
 
 
+def _parse_utc(value):
+    return datetime.datetime.fromisoformat(value) if value else None
+
+
+def xatm_due_time(mode, now_local, timings):
+    """Bugungi eslatma vaqti. Hisoblab bo'lmasa None."""
+    if mode in xatm.HOUR_MODES:
+        return now_local.replace(hour=xatm.HOUR_MODES[mode], minute=0, second=0, microsecond=0)
+    if mode in xatm.PRAYER_MODES and timings:
+        hh, mm = map(int, timings[xatm.PRAYER_MODES[mode][0]].split(":"))
+        return now_local.replace(hour=hh, minute=mm, second=0, microsecond=0) + datetime.timedelta(minutes=XATM_AFTER_PRAYER_MINUTES)
+    return None
+
+
+async def check_and_send_xatm_reminders(bot: Bot):
+    try:
+        plans = await get_xatm_reminder_candidates()
+        if not plans:
+            return
+
+        # Joylashuvi bor foydalanuvchilar uchun vaqt mintaqasi va namoz vaqtlari (kesh bilan)
+        by_loc = {}
+        for plan in plans:
+            if plan['latitude'] is not None:
+                by_loc.setdefault(f"{round(plan['latitude'], 2)}_{round(plan['longitude'], 2)}", plan)
+        sem = asyncio.Semaphore(2)
+        async with aiohttp.ClientSession() as session:
+            async def _load(key, plan):
+                async with sem:
+                    return key, await fetch_timings(session, key, plan['latitude'], plan['longitude'])
+            entries = dict(await asyncio.gather(*(_load(k, p) for k, p in by_loc.items())))
+
+        now_utc = datetime.datetime.now(datetime.timezone.utc)
+        for plan in plans:
+            timings = None
+            tz = TASHKENT_TZ
+            if plan['latitude'] is not None:
+                entry = entries.get(f"{round(plan['latitude'], 2)}_{round(plan['longitude'], 2)}")
+                if not entry:
+                    continue  # API javob bermadi — keyingi daqiqada qayta urinamiz
+                tz, timings = ZoneInfo(entry['timezone']), entry['timings']
+
+            now_local = now_utc.astimezone(tz)
+            today = now_local.strftime("%Y-%m-%d")
+            last_read = _parse_utc(plan['last_read_at'])
+            if last_read and last_read.astimezone(tz).date() == now_local.date():
+                continue  # bugungi vird o'qilgan — eslatma kerak emas
+
+            snooze_until = _parse_utc(plan['snooze_until'])
+            snooze_due = snooze_until is not None and now_utc >= snooze_until
+            due = xatm_due_time(plan['remind_mode'], now_local, timings)
+            regular_due = (due is not None and plan['last_reminded_date'] != today
+                           and due <= now_local < due + datetime.timedelta(hours=XATM_WINDOW_HOURS))
+            if not snooze_due and not regular_due:
+                continue
+
+            script = plan['script'] or 'latin'
+            if regular_due and plan['unanswered'] >= XATM_MAX_UNANSWERED:
+                await update_xatm_plan(plan['user_id'], status='paused', last_reminded_date=today, snooze_until=None)
+                text, kb = xatm.build_pause_question(script)
+            else:
+                fields = {"snooze_until": None}
+                if regular_due:
+                    fields.update(last_reminded_date=today, unanswered=plan['unanswered'] + 1)
+                await update_xatm_plan(plan['user_id'], **fields)
+                text, kb = await xatm.build_reminder(plan, script)
+            send_queue.put_nowait((plan['user_id'], text, {"parse_mode": "HTML", "reply_markup": kb}))
+
+    except Exception as e:
+        log.exception("Xatolik (Xatm Checker): %s", e)
+
+
 async def main():
     global send_queue
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher()
 
+    # xatm birinchi: start.router'dagi umumiy qidiruv handleri uning tugmasini ushlab qolmasin
+    dp.include_router(xatm.router)
     dp.include_router(start.router)
 
     if not os.path.exists(DB_PATH):
@@ -229,6 +310,9 @@ async def main():
 
     scheduler = AsyncIOScheduler(timezone=TASHKENT_TZ)
     scheduler.add_job(check_and_send_prayer_notifications, "cron", minute="*", args=(bot,),
+                      max_instances=1, coalesce=True, misfire_grace_time=30)
+    # 30-soniyada: namoz tekshiruvi vaqtlarni keshlab olganidan keyin (API'ga ortiqcha so'rov ketmasin)
+    scheduler.add_job(check_and_send_xatm_reminders, "cron", minute="*", second=30, args=(bot,),
                       max_instances=1, coalesce=True, misfire_grace_time=30)
     # Juma xabarnomasi: Har juma kuni soat 08:00 da (Toshkent vaqti bilan)
     scheduler.add_job(check_and_send_juma_notifications, "cron", day_of_week="fri", hour=8, minute=0, args=(bot,),

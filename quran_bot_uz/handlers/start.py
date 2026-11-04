@@ -111,7 +111,8 @@ def build_settings_menu(script):
         [InlineKeyboardButton(text=btn_lang, callback_data="change_lang")],
         [InlineKeyboardButton(text=btn_qari, callback_data="change_qari")],
         [InlineKeyboardButton(text=btn_notify, callback_data="notify_menu")],
-        [InlineKeyboardButton(text=btn_city, callback_data="city_menu")]
+        [InlineKeyboardButton(text=btn_city, callback_data="city_menu")],
+        [InlineKeyboardButton(text="📖 Xatm rejasi" if script == 'latin' else "📖 Хатм режаси", callback_data="xatm_menu")]
     ])
     return text, keyboard
 

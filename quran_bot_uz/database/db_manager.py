@@ -89,6 +89,22 @@ async def init_user_db():
                 await db.execute(f"ALTER TABLE users ADD COLUMN {col_sql}")
             except aiosqlite.OperationalError:
                 pass  # ustun allaqachon bor
+        # Xatm rejalari alohida jadvalda: users jadvali va sozlamalarga tegmaydi
+        await db.execute("""
+        CREATE TABLE IF NOT EXISTS xatm_plans (
+            user_id INTEGER PRIMARY KEY,
+            plan_days INTEGER NOT NULL,
+            current_day INTEGER NOT NULL DEFAULT 1,
+            read_page INTEGER NOT NULL DEFAULT 0,
+            remind_mode TEXT NOT NULL DEFAULT 'off',
+            status TEXT NOT NULL DEFAULT 'active',
+            completed_count INTEGER NOT NULL DEFAULT 0,
+            last_read_at TEXT,
+            last_reminded_date TEXT,
+            snooze_until TEXT,
+            unanswered INTEGER NOT NULL DEFAULT 0
+        )
+        """)
         await db.commit()
 
 async def ensure_user(user_id: int):
@@ -157,6 +173,79 @@ async def toggle_notify_prayer(user_id: int, prayer_key: str):
     async with aiosqlite.connect(USER_DB_PATH) as db:
         await db.execute("UPDATE users SET notify_off = ? WHERE user_id = ?", (",".join(sorted(off)), user_id))
         await db.commit()
+
+# === XATM REJASI ===
+_XATM_FIELDS = {"plan_days", "current_day", "read_page", "remind_mode", "status",
+                "last_reminded_date", "snooze_until", "unanswered"}
+
+async def get_xatm_plan(user_id: int):
+    async with aiosqlite.connect(USER_DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM xatm_plans WHERE user_id = ?", (user_id,)) as cursor:
+            row = await cursor.fetchone()
+    return dict(row) if row else None
+
+async def start_xatm_plan(user_id: int, plan_days: int):
+    """Yangi xatmni boshidan boshlaydi. Eslatma vaqti va tugatilgan xatmlar soni saqlanadi."""
+    await ensure_user(user_id)
+    async with aiosqlite.connect(USER_DB_PATH) as db:
+        await db.execute("""
+            INSERT INTO xatm_plans (user_id, plan_days) VALUES (?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET plan_days = excluded.plan_days, current_day = 1, read_page = 0,
+                status = 'active', snooze_until = NULL, unanswered = 0
+        """, (user_id, plan_days))
+        await db.commit()
+
+async def update_xatm_plan(user_id: int, **fields):
+    bad = set(fields) - _XATM_FIELDS
+    if bad:
+        raise ValueError(f"Noma'lum ustunlar: {bad}")
+    assignments = ", ".join(f"{name} = ?" for name in fields)
+    async with aiosqlite.connect(USER_DB_PATH) as db:
+        await db.execute(f"UPDATE xatm_plans SET {assignments} WHERE user_id = ?", (*fields.values(), user_id))
+        await db.commit()
+
+async def complete_xatm_day(user_id: int, day: int, read_at: str):
+    """Kunni o'qilgan deb belgilaydi. Tugma ikki marta bosilsa ham bir marta sanaladi.
+
+    Natija: yangilangan reja yoki (bu kun allaqachon belgilangan bo'lsa) None."""
+    async with aiosqlite.connect(USER_DB_PATH) as db:
+        cur = await db.execute("""
+            UPDATE xatm_plans SET current_day = current_day + 1, read_page = 0, last_read_at = ?,
+                unanswered = 0, snooze_until = NULL, status = 'active'
+            WHERE user_id = ? AND current_day = ? AND status IN ('active', 'paused')
+        """, (read_at, user_id, day))
+        if cur.rowcount != 1:
+            await db.commit()
+            return None
+        await db.execute("""
+            UPDATE xatm_plans SET status = 'completed', completed_count = completed_count + 1
+            WHERE user_id = ? AND current_day > plan_days
+        """, (user_id,))
+        await db.commit()
+    return await get_xatm_plan(user_id)
+
+async def get_xatm_reminder_candidates():
+    async with aiosqlite.connect(USER_DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("""
+            SELECT x.*, u.latitude, u.longitude, u.script FROM xatm_plans x JOIN users u ON u.user_id = x.user_id
+            WHERE x.status = 'active' AND (x.remind_mode != 'off' OR x.snooze_until IS NOT NULL)
+        """) as cursor:
+            return [dict(r) for r in await cursor.fetchall()]
+
+async def get_verses_between(start: tuple, end: tuple, script='latin'):
+    """start oyatidan end oyatigacha (end kirmaydi), Qur'on tartibida."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("""
+            SELECT surah_id, verse_id, surah_name_uz, text_arabic, text_uzbek FROM verses
+            WHERE (surah_id > ? OR (surah_id = ? AND verse_id >= ?))
+              AND (surah_id < ? OR (surah_id = ? AND verse_id < ?))
+            ORDER BY surah_id, verse_id
+        """, (start[0], start[0], start[1], end[0], end[0], end[1])) as cursor:
+            rows = await cursor.fetchall()
+    return [translate_dict(dict(r), script) for r in rows]
 
 def translate_dict(d: dict, script: str):
     if script == 'cyrillic': return d

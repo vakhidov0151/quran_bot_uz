@@ -4,6 +4,7 @@ def get_main_keyboard(script='latin'):
     if script == 'latin':
         kb = [
             [KeyboardButton(text="📖 Qur'on o'qish va tinglash")],
+            [KeyboardButton(text="📖 Xatm rejasi")],
             [KeyboardButton(text="🕌 Namoz vaqtlari"), KeyboardButton(text="🌙 Saharlik / Iftorlik")],
             [KeyboardButton(text="🤲 Duolar"), KeyboardButton(text="✨ Kun oyati")],
             [KeyboardButton(text="🧭 Qibla"), KeyboardButton(text="📿 Elektron tasbeh")],
@@ -13,6 +14,7 @@ def get_main_keyboard(script='latin'):
     else:
         kb = [
             [KeyboardButton(text="📖 Қуръон ўқиш ва тинглаш")],
+            [KeyboardButton(text="📖 Хатм режаси")],
             [KeyboardButton(text="🕌 Намоз вақтлари"), KeyboardButton(text="🌙 Саҳарлик / Ифторлик")],
             [KeyboardButton(text="🤲 Дуолар"), KeyboardButton(text="✨ Кун ояти")],
             [KeyboardButton(text="🧭 Қибла"), KeyboardButton(text="📿 Электрон тасбеҳ")],
