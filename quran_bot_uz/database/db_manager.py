@@ -292,16 +292,23 @@ async def get_dua_by_id(dua_id: int, script='latin'):
             row = await cursor.fetchone()
             return translate_dict(dict(row), script) if row else None
 
-async def search_verses_by_text(keyword: str, script='latin'):
+async def search_verses_by_text(keyword: str, script='latin', page: int = 1, limit: int = 10):
+    """So'z bo'yicha qidiruv. Natija: (shu sahifadagi oyatlar, jami topilganlar soni)."""
+    # Oyatlar matni kirillda. Kirillcha yozilgan so'z o'zgarmaydi, lotinchasi o'giriladi
+    search_word = uz_latin_to_cyrillic(keyword.lower())
+    # SQLite LIKE kirill harflarida katta-kichikni farqlaydi — gap boshidagi so'z uchun bosh harfli variant ham
+    capitalized = search_word[:1].upper() + search_word[1:]
+    escape = lambda s: s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    where = "text_uzbek LIKE ? ESCAPE '\\' OR text_uzbek LIKE ? ESCAPE '\\'"
+    params = (f"%{escape(search_word)}%", f"%{escape(capitalized)}%")
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        search_word = latin_to_cyrillic(keyword) if script == 'latin' else keyword
-        # SQLite LIKE kirill harflarida katta-kichikni farqlaydi — gap boshidagi so'z uchun bosh harfli variant ham
-        capitalized = search_word[:1].upper() + search_word[1:]
-        async with db.execute("SELECT * FROM verses WHERE text_uzbek LIKE ? OR text_uzbek LIKE ? LIMIT 10",
-                              (f"%{search_word}%", f"%{capitalized}%")) as cursor:
+        async with db.execute(f"SELECT COUNT(*) FROM verses WHERE {where}", params) as cursor:
+            total = (await cursor.fetchone())[0]
+        async with db.execute(f"SELECT * FROM verses WHERE {where} ORDER BY surah_id, verse_id LIMIT ? OFFSET ?",
+                              (*params, limit, (page - 1) * limit)) as cursor:
             rows = await cursor.fetchall()
-            return [translate_dict(dict(row), script) for row in rows]
+    return [translate_dict(dict(row), script) for row in rows], total
 
 CUSTOM_VERSES = [
     (1, 1), (1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7),

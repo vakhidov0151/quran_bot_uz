@@ -1,5 +1,6 @@
 import math
 import html
+import hashlib
 import aiohttp
 import os
 import datetime
@@ -7,6 +8,7 @@ import re
 from config import ADMIN_IDS, NISAB_SOM, PRAYER_NAMES, CITIES
 from aiogram import Router, F
 from aiogram.filters import CommandStart, Command
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from keyboards.reply import get_main_keyboard
 from keyboards.inline import get_surahs_keyboard, get_verses_keyboard, get_asma_keyboard
@@ -765,6 +767,89 @@ async def zakat_calculate(message: Message, state: FSMContext):
     await message.answer(res, parse_mode="Markdown", reply_markup=get_main_keyboard(script))
     await state.clear()
 
+# === SO'Z BO'YICHA QIDIRUV: SAHIFALASH ===
+SEARCH_PAGE_SIZE = 10
+SEARCH_TEXT_LIMIT = 300  # 10 ta oyat bitta xabarga (4096 belgi) sig'ishi uchun
+# Tugmaga so'zning o'zi sig'maydi (64 bayt), shuning uchun qisqa kalit. Bot qayta yonsa kesh tozalanadi
+search_keywords = {}
+
+def remember_search_keyword(keyword: str) -> str:
+    key = hashlib.sha1(keyword.lower().encode()).hexdigest()[:12]
+    if key not in search_keywords and len(search_keywords) >= 5000:
+        search_keywords.pop(next(iter(search_keywords)))
+    search_keywords[key] = keyword
+    return key
+
+async def build_search_page(keyword: str, page: int, script: str):
+    """(matn, klaviatura) yoki hech narsa topilmasa (None, None)."""
+    verses, total = await search_verses_by_text(keyword, script, page, SEARCH_PAGE_SIZE)
+    if not total:
+        return None, None
+    pages = (total + SEARCH_PAGE_SIZE - 1) // SEARCH_PAGE_SIZE
+    if page > pages:  # kam ehtimol, lekin eski tugma bosilsa oxirgi sahifani ko'rsatamiz
+        page = pages
+        verses, total = await search_verses_by_text(keyword, script, page, SEARCH_PAGE_SIZE)
+
+    latin = script == 'latin'
+    first = (page - 1) * SEARCH_PAGE_SIZE + 1
+    last = first + len(verses) - 1
+    text = f"🔍 **Natijalar: {first}–{last} / {total} ta**\n\n" if latin else f"🔍 **Натижалар: {first}–{last} / {total} та**\n\n"
+    oyat_text = "oyat" if latin else "оят"
+    trimmed = False
+    example = None
+
+    for v in verses:
+        name = v.get('surah_name_uz', v.get('name_uz', 'Sura'))
+        s_id = v.get('surah_id', 0)
+        v_id = v.get('verse_id', v.get('id', 0))
+        uz_text = v.get('text_uzbek', v.get('uzbek', v.get('text', '')))
+        if len(uz_text) > SEARCH_TEXT_LIMIT:
+            uz_text = uz_text[:SEARCH_TEXT_LIMIT].rsplit(" ", 1)[0] + "…"
+            trimmed = True
+            example = example or f"{s_id}:{v_id}"
+        text += f"📖 **{name}, {v_id}-{oyat_text}** ({s_id}:{v_id})\n{uz_text}\n\n---\n"
+
+    if trimmed:
+        text += f"\n✂️ To'liq o'qish uchun raqamini yozing, masalan: {example}\n" if latin else f"\n✂️ Тўлиқ ўқиш учун рақамини ёзинг, масалан: {example}\n"
+    text += "\n👉 @al\\_qurani\\_karim\\_bot"
+
+    kb = None
+    if pages > 1:
+        key = remember_search_keyword(keyword)
+        row = []
+        if page > 1:
+            row.append(InlineKeyboardButton(text="⬅️ Oldingi" if latin else "⬅️ Олдинги", callback_data=f"sp:{key}:{page - 1}"))
+        row.append(InlineKeyboardButton(text=f"{page} / {pages}", callback_data="sp_noop"))
+        if page < pages:
+            row.append(InlineKeyboardButton(text="Keyingi ➡️" if latin else "Кейинги ➡️", callback_data=f"sp:{key}:{page + 1}"))
+        kb = InlineKeyboardMarkup(inline_keyboard=[row])
+    return text, kb
+
+def _plain_search_text(text: str) -> str:
+    return text.replace("**", "").replace("*", "").replace(r"\_", "_")
+
+@router.callback_query(F.data == "sp_noop")
+async def search_page_noop_callback(call: CallbackQuery):
+    await call.answer()
+
+@router.callback_query(F.data.startswith("sp:"))
+async def search_page_callback(call: CallbackQuery):
+    script = await get_user_script(call.from_user.id)
+    _, key, page = call.data.split(":")
+    keyword = search_keywords.get(key)
+    if not keyword:
+        msg = "Qidiruv eskirgan. So'zni qaytadan yozing." if script == 'latin' else "Қидирув эскирган. Сўзни қайтадан ёзинг."
+        await call.answer(msg, show_alert=True)
+        return
+    text, kb = await build_search_page(keyword, int(page), script)
+    if text:
+        try:
+            await call.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                await call.message.edit_text(_plain_search_text(text), reply_markup=kb)
+    await call.answer()
+
 # === AQLLI QIDIRUV (2:255 yeki Baqara 255) ===
 @router.message(F.text & ~F.text.in_({"📖 Qur'on o'qish va tinglash", "📖 Қуръон ўқиш ва тинглаш", "🕌 Namoz vaqtlari", "🕌 Намоз вақтлари", "🌙 Saharlik / Iftorlik", "🌙 Саҳарлик / Ифторлик", "✨ Kun oyati", "✨ Кун ояти", "🤲 Duolar", "🤲 Дуолар", "🧭 Qibla", "🧭 Қибла", "✨ Asmo ul-Husna", "✨ Асмо ул-Ҳусна", "🔍 Qidiruv", "🔍 Қидирув", "📿 Elektron tasbeh", "📿 Электрон тасбеҳ", "🔙 Asosiy menyu", "🔙 Асосий меню", "⚙️ Sozlamalar", "⚙️ Созламалар", "💰 Zakot kalkulyatori", "💰 Закот калькулятори"}))
 async def search_verses_handler(message: Message):
@@ -810,33 +895,15 @@ async def search_verses_handler(message: Message):
             return
             
         # Agar format "2:255" bo'lmasa, unda oddiy so'zma-so'z izlashga o'tadi
-        verses = await search_verses_by_text(keyword, script)
-        if not verses:
-            verses = await search_verses_by_text(keyword.lower(), script)
-            if not verses:
-                verses = await search_verses_by_text(keyword.capitalize(), script)
-        
-        if not verses:
+        text, kb = await build_search_page(keyword, 1, script)
+        if not text:
             msg = f"«{keyword}» bo'yicha hech narsa topilmadi." if script == 'latin' else f"«{keyword}» бўйича ҳеч нарса топилмади."
             await message.answer(msg)
             return
-            
-        text = f"🔍 **Natijalar ({len(verses)} ta):**\n\n" if script == 'latin' else f"🔍 **Натижалар ({len(verses)} та):**\n\n"
-        oyat_text = "oyat" if script == 'latin' else "оят"
-        
-        for v in verses:
-            name = v.get('surah_name_uz', v.get('name_uz', 'Sura'))
-            v_id = v.get('verse_id', v.get('id', 0))
-            uz_text = v.get('text_uzbek', v.get('uzbek', v.get('text', '')))
-            text += f"📖 **{name}, {v_id}-{oyat_text}**\n{uz_text}\n\n---\n"
-            
-        if len(text) > 3900:
-            text = text[:3900] + "...\n(Ko'p natija topildi / Кўп натижа топилди)"
-            
-        text += "\n👉 @al\\_qurani\\_karim\\_bot"
+
         try:
-            await message.answer(text, parse_mode="Markdown")
-        except Exception:
-            await message.answer(text.replace("**", "").replace("*", "").replace(r"\_", "_"))
+            await message.answer(text, reply_markup=kb, parse_mode="Markdown")
+        except TelegramBadRequest:
+            await message.answer(_plain_search_text(text), reply_markup=kb)
     except Exception as e:
         await message.answer(f"Xatolik (Qidiruv): {e}")
