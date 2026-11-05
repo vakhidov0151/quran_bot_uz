@@ -89,6 +89,13 @@ async def init_user_db():
                 await db.execute(f"ALTER TABLE users ADD COLUMN {col_sql}")
             except aiosqlite.OperationalError:
                 pass  # ustun allaqachon bor
+        # Murojaatlar: admin qaysi xabarga Reply qilsa, javob kimga borishini biladi
+        await db.execute("""
+        CREATE TABLE IF NOT EXISTS feedback_messages (
+            admin_message_id INTEGER PRIMARY KEY,
+            user_id INTEGER NOT NULL
+        )
+        """)
         # Xatm rejalari alohida jadvalda: users jadvali va sozlamalarga tegmaydi
         await db.execute("""
         CREATE TABLE IF NOT EXISTS xatm_plans (
@@ -173,6 +180,18 @@ async def toggle_notify_prayer(user_id: int, prayer_key: str):
     async with aiosqlite.connect(USER_DB_PATH) as db:
         await db.execute("UPDATE users SET notify_off = ? WHERE user_id = ?", (",".join(sorted(off)), user_id))
         await db.commit()
+
+async def save_feedback_message(admin_message_id: int, user_id: int):
+    async with aiosqlite.connect(USER_DB_PATH) as db:
+        await db.execute("INSERT OR REPLACE INTO feedback_messages (admin_message_id, user_id) VALUES (?, ?)",
+                         (admin_message_id, user_id))
+        await db.commit()
+
+async def get_feedback_user(admin_message_id: int):
+    async with aiosqlite.connect(USER_DB_PATH) as db:
+        async with db.execute("SELECT user_id FROM feedback_messages WHERE admin_message_id = ?", (admin_message_id,)) as cursor:
+            row = await cursor.fetchone()
+    return row[0] if row else None
 
 # === XATM REJASI ===
 _XATM_FIELDS = {"plan_days", "current_day", "read_page", "remind_mode", "status",

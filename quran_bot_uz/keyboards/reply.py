@@ -9,7 +9,8 @@ def get_main_keyboard(script='latin'):
             [KeyboardButton(text="🤲 Duolar"), KeyboardButton(text="✨ Kun oyati")],
             [KeyboardButton(text="🧭 Qibla"), KeyboardButton(text="📿 Elektron tasbeh")],
             [KeyboardButton(text="💰 Zakot kalkulyatori"), KeyboardButton(text="✨ Asmo ul-Husna")],
-            [KeyboardButton(text="🔍 Qidiruv"), KeyboardButton(text="⚙️ Sozlamalar")]
+            [KeyboardButton(text="🔍 Qidiruv"), KeyboardButton(text="⚙️ Sozlamalar")],
+            [KeyboardButton(text="✉️ Taklif va shikoyat")]
         ]
     else:
         kb = [
@@ -19,6 +20,7 @@ def get_main_keyboard(script='latin'):
             [KeyboardButton(text="🤲 Дуолар"), KeyboardButton(text="✨ Кун ояти")],
             [KeyboardButton(text="🧭 Қибла"), KeyboardButton(text="📿 Электрон тасбеҳ")],
             [KeyboardButton(text="💰 Закот калькулятори"), KeyboardButton(text="✨ Асмо ул-Ҳусна")],
-            [KeyboardButton(text="🔍 Қидирув"), KeyboardButton(text="⚙️ Созламалар")]
+            [KeyboardButton(text="🔍 Қидирув"), KeyboardButton(text="⚙️ Созламалар")],
+            [KeyboardButton(text="✉️ Таклиф ва шикоят")]
         ]
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)

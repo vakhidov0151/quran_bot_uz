@@ -9,7 +9,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.exceptions import TelegramRetryAfter, TelegramForbiddenError, TelegramBadRequest
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from config import BOT_TOKEN, DB_PATH, USER_DB_PATH, PRAYER_NAMES
-from handlers import start, xatm
+from handlers import start, xatm, feedback
 from database.db_manager import init_user_db, get_xatm_reminder_candidates, update_xatm_plan
 
 logging.basicConfig(level=logging.INFO)
@@ -295,7 +295,8 @@ async def main():
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher()
 
-    # xatm birinchi: start.router'dagi umumiy qidiruv handleri uning tugmasini ushlab qolmasin
+    # feedback va xatm birinchi: start.router'dagi umumiy qidiruv handleri ularning tugmasini ushlab qolmasin
+    dp.include_router(feedback.router)
     dp.include_router(xatm.router)
     dp.include_router(start.router)
 
